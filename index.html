@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Bodegón & Market Ato'z | Caja y Administración</title>
+  <title>Bodegón & Market Ato'z | Sistema Administrativo y Reportes</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,13 +14,13 @@
 <body>
 
   <!-- ========================================================================
-       1. PANTALLA DE ENTRADA (SÚPER SIMPLE)
+       1. PANTALLA DE ENTRADA
        ======================================================================== -->
   <div id="login-screen" class="login-screen">
     <div class="login-card">
       <img src="logo.png" alt="Logo Ato'z" class="login-logo">
       <h1 class="login-title">BODEGÓN ATO'Z</h1>
-      <p class="login-subtitle">Control de Caja y Ventas • RIF: J-500277490</p>
+      <p class="login-subtitle">Sistema Administrativo y Caja • RIF: J-500277490</p>
 
       <form id="login-form" class="login-form">
         <div class="field">
@@ -45,33 +45,36 @@
   </div>
 
   <!-- ========================================================================
-       2. SISTEMA PRINCIPAL (LIMPIO, GRANDE Y FÁCIL)
+       2. SISTEMA PRINCIPAL
        ======================================================================== -->
   <div id="app-shell" class="app-shell hidden">
 
-    <!-- BARRA SUPERIOR SIMPLE -->
+    <!-- BARRA SUPERIOR -->
     <header class="topbar">
       <div class="topbar-brand">
         <img src="logo.png" alt="Logo Ato'z" class="topbar-logo">
         <div>
           <h2>BODEGÓN ATO'Z</h2>
-          <span id="active-user-badge" class="user-badge">Admin: dzara</span>
+          <span id="active-user-badge" class="user-badge">Admin: David Zara</span>
         </div>
       </div>
 
-      <!-- MENÚ PRINCIPAL (4 BOTONES GRANDES) -->
+      <!-- MENÚ PRINCIPAL -->
       <nav class="main-nav">
         <button class="nav-btn active" data-tab="caja">
           <i class="fa-solid fa-cash-register"></i> 1. Caja Diaria
         </button>
         <button class="nav-btn" data-tab="cierre">
-          <i class="fa-solid fa-Lock"></i><i class="fa-solid fa-clipboard-check"></i> 2. Cierre de Caja
+          <i class="fa-solid fa-clipboard-check"></i> 2. Cierre de Caja
         </button>
         <button class="nav-btn" data-tab="clientes">
           <i class="fa-solid fa-user-clock"></i> 3. Clientes / Fiados
         </button>
         <button class="nav-btn" data-tab="inventario">
-          <i class="fa-solid fa-boxes-stacked"></i> 4. Precios
+          <i class="fa-solid fa-boxes-stacked"></i> 4. Inventario y Precios
+        </button>
+        <button class="nav-btn" data-tab="reportes">
+          <i class="fa-solid fa-chart-pie"></i> 5. Reportes
         </button>
         <button class="nav-btn admin-only" data-tab="cajeros">
           <i class="fa-solid fa-users-gear"></i> Cajeros
@@ -93,15 +96,14 @@
     <main class="container">
 
       <!-- ====================================================================
-           PESTAÑA 1: CAJA DIARIA (SÚPER SENCILLA)
+           PESTAÑA 1: CAJA DIARIA
            ==================================================================== -->
       <section id="tab-caja" class="view active">
 
-        <!-- PASO 1: BOTONES RÁPIDOS + FORMULARIO EN 1 SOLA CAJA SIMPLE -->
         <div class="box">
           <div class="box-header">
             <h3><i class="fa-solid fa-bolt text-gold"></i> Registrar Venta Rápida</h3>
-            <span class="hint">Toca un producto o escríbelo abajo, elige cómo pagó y dale a Registrar</span>
+            <span class="hint">Toca un producto rápido o escríbelo, elige cómo pagó y presiona Registrar</span>
           </div>
 
           <!-- Botones rápidos de 1 clic -->
@@ -109,8 +111,6 @@
 
           <!-- Formulario de 3 pasos simples -->
           <form id="sale-form" class="simple-sale-form">
-            <input type="hidden" id="sale-edit-id" value="">
-
             <div class="sale-inputs-grid">
               <div class="field field-prod">
                 <label>1. Producto</label>
@@ -141,7 +141,7 @@
               </div>
             </div>
 
-            <!-- PASO 2: ¿CÓMO PAGÓ EL CLIENTE? (BOTONES GRANDES) -->
+            <!-- PASO 2: ¿CÓMO PAGÓ EL CLIENTE? -->
             <div class="pay-methods-section">
               <label class="section-label">2. ¿Cómo pagó?</label>
               <div class="pay-buttons-row">
@@ -166,10 +166,10 @@
               </div>
             </div>
 
-            <!-- PASO 3: CLIENTE (OPCIONAL O PARA FIADOS) + BOTÓN REGISTRAR -->
+            <!-- PASO 3: CLIENTE + REGISTRAR -->
             <div class="sale-bottom-bar">
               <div class="client-optional-wrap">
-                <input type="text" id="entry-client" list="datalist-clients" placeholder="Nombre del Cliente (Opcional, o obligatorio si es Fiado)..." autocomplete="off">
+                <input type="text" id="entry-client" list="datalist-clients" placeholder="Nombre del Cliente (Opcional, o para Fiado)..." autocomplete="off">
                 <datalist id="datalist-clients"></datalist>
                 <label class="yellow-check">
                   <input type="checkbox" id="entry-highlight">
@@ -178,7 +178,6 @@
               </div>
 
               <div class="submit-buttons-wrap">
-                <button type="button" id="cancel-edit-btn" class="btn-secondary hidden">Cancelar</button>
                 <button type="submit" id="submit-sale-btn" class="btn-gold btn-register">
                   <i class="fa-solid fa-check"></i> REGISTRAR VENTA
                 </button>
@@ -187,7 +186,7 @@
           </form>
         </div>
 
-        <!-- RESUMEN RÁPIDO DE CAJA ARRIBA DE LA TABLA -->
+        <!-- RESUMEN RÁPIDO DE CAJA -->
         <div class="summary-strip">
           <div class="sum-card sum-gold">
             <span>TOTAL VENTAS HOY</span>
@@ -215,17 +214,20 @@
           </div>
         </div>
 
-        <!-- TABLA DE CONSUMO DIARIO (IGUAL A TU IMAGEN DE EXCEL) -->
+        <!-- TABLA DE CONSUMO DIARIO -->
         <div class="box">
           <div class="box-header">
             <h3><i class="fa-solid fa-table-list text-gold"></i> Hoja de Consumo Diario</h3>
             <div class="table-top-actions">
               <input type="text" id="search-sales" placeholder="Buscar en la hoja..." class="input-sm">
+              <button type="button" id="print-daily-report-btn" class="btn-gold">
+                <i class="fa-solid fa-print"></i> Reporte PDF del Día
+              </button>
               <button type="button" id="export-excel-btn" class="btn-outline">
-                <i class="fa-solid fa-file-excel"></i> Descargar Excel
+                <i class="fa-solid fa-file-excel"></i> Excel
               </button>
               <button type="button" id="clear-day-btn" class="btn-danger-outline">
-                <i class="fa-solid fa-trash-can"></i> Empezar Día en Cero
+                <i class="fa-solid fa-trash-can"></i> Nuevo Turno en Cero
               </button>
             </div>
           </div>
@@ -259,7 +261,7 @@
       </section>
 
       <!-- ====================================================================
-           PESTAÑA 2: CIERRE DE CAJA (SÚPER FÁCIL PARA EL CAJERO)
+           PESTAÑA 2: CIERRE DE CAJA
            ==================================================================== -->
       <section id="tab-cierre" class="view">
         <div class="cierre-simple-layout">
@@ -325,7 +327,7 @@
                   <i class="fa-solid fa-check-double"></i> GUARDAR CIERRE DE CAJA
                 </button>
                 <button type="button" id="print-cierre-btn" class="btn-outline btn-big">
-                  <i class="fa-solid fa-print"></i> IMPRIMIR REPORTE
+                  <i class="fa-solid fa-print"></i> IMPRIMIR REPORTE DE CIERRE
                 </button>
               </div>
             </form>
@@ -333,7 +335,7 @@
 
           <div class="box">
             <div class="box-header">
-              <h3><i class="fa-solid fa-clock-rotate-left text-gold"></i> Cierres Guardados</h3>
+              <h3><i class="fa-solid fa-clock-rotate-left text-gold"></i> Historial de Cierres Guardados</h3>
             </div>
             <div id="closures-list" class="closures-list"></div>
           </div>
@@ -369,6 +371,9 @@
                 <option value="DEUDA">Solo los que Deben</option>
                 <option value="FAVOR">Con Saldo a Favor</option>
               </select>
+              <button type="button" id="print-clients-report-btn" class="btn-outline">
+                <i class="fa-solid fa-print"></i> Imprimir Deudas PDF
+              </button>
               <button type="button" id="new-client-btn" class="btn-gold">
                 <i class="fa-solid fa-plus"></i> Nuevo Cliente
               </button>
@@ -393,22 +398,29 @@
       </section>
 
       <!-- ====================================================================
-           PESTAÑA 4: LISTA DE PRECIOS E INVENTARIO (775 PRODUCTOS)
+           PESTAÑA 4: INVENTARIO Y PRECIOS (EDICIÓN DIRECTA DE STOCK Y PRECIO)
            ==================================================================== -->
       <section id="tab-inventario" class="view">
         <div class="box">
           <div class="box-header">
-            <h3><i class="fa-solid fa-tags text-gold"></i> Lista de Precios e Inventario (775 Productos)</h3>
+            <div>
+              <h3><i class="fa-solid fa-boxes-stacked text-gold"></i> Lista de Precios y Control de Stock (<span id="inv-total-label">775</span> Productos)</h3>
+              <span class="hint">Puedes escribir el nuevo Stock o Precio directamente en la tabla o usar los botones - / + y se guarda al instante</span>
+            </div>
             <div class="table-top-actions">
-              <input type="text" id="search-inv" placeholder="Buscar producto o precio..." class="input-sm">
+              <input type="text" id="search-inv" placeholder="Buscar producto..." class="input-sm">
               <select id="filter-inv-cat" class="input-sm">
                 <option value="ALL">Todas las Categorías</option>
                 <option value="QUICK">Botones Rápidos de Caja</option>
                 <option value="CERVEZA NACIONAL">Cerveza Nacional y Tobos</option>
                 <option value="NACIONAL">Productos Nacionales</option>
                 <option value="IMPORTADO">Productos Importados</option>
+                <option value="LOW_STOCK">Stock Bajo / En Cero</option>
               </select>
-              <button type="button" id="new-prod-btn" class="btn-gold admin-only">
+              <button type="button" id="print-inv-report-btn" class="btn-outline">
+                <i class="fa-solid fa-print"></i> Reporte Inventario PDF
+              </button>
+              <button type="button" id="new-prod-btn" class="btn-gold">
                 <i class="fa-solid fa-plus"></i> Nuevo Producto
               </button>
             </div>
@@ -422,9 +434,9 @@
                   <th>CATEGORÍA</th>
                   <th>PRECIO ($)</th>
                   <th>PRECIO EN BS</th>
-                  <th>STOCK</th>
+                  <th>STOCK ACTUAL (EDITABLE)</th>
                   <th>BOTÓN RÁPIDO</th>
-                  <th class="admin-only">EDITAR</th>
+                  <th>ACCIONES</th>
                 </tr>
               </thead>
               <tbody id="inv-tbody"></tbody>
@@ -435,7 +447,119 @@
       </section>
 
       <!-- ====================================================================
-           PESTAÑA 5: CAJEROS Y USUARIOS (SOLO ADMIN dzara)
+           PESTAÑA 5: REPORTES PROFESIONALES Y ESTADÍSTICAS
+           ==================================================================== -->
+      <section id="tab-reportes" class="view">
+
+        <!-- BOTONES DE IMPRESIÓN DE REPORTES OFICIALES CON MEMBRETE -->
+        <div class="box report-hero-box">
+          <div class="box-header" style="margin-bottom:8px;">
+            <div>
+              <h3><i class="fa-solid fa-file-signature text-gold"></i> Centro de Reportes Ejecutivos — Bodegón & Market Ato'z</h3>
+              <span class="hint">Genera documentos formales listos para imprimir o guardar en PDF con logo oficial, RIF y firmas, o descárgalos en Excel</span>
+            </div>
+          </div>
+          <div class="report-action-cards">
+            <div class="rep-action-card">
+              <div class="rep-card-icon"><i class="fa-solid fa-cash-register"></i></div>
+              <div class="rep-card-info">
+                <strong>Reporte de Cierre y Ventas del Día</strong>
+                <span>Incluye cuadre por método de pago, tasa del día y todas las ventas detalladas.</span>
+              </div>
+              <button type="button" id="rep-btn-print-sales" class="btn-gold">
+                <i class="fa-solid fa-print"></i> Ver / Imprimir PDF
+              </button>
+            </div>
+
+            <div class="rep-action-card">
+              <div class="rep-card-icon"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+              <div class="rep-card-info">
+                <strong>Reporte de Cuentas por Cobrar (Fiados)</strong>
+                <span>Listado formal de clientes con deuda activa y clientes con saldo a favor.</span>
+              </div>
+              <button type="button" id="rep-btn-print-clients" class="btn-gold">
+                <i class="fa-solid fa-print"></i> Ver / Imprimir PDF
+              </button>
+            </div>
+
+            <div class="rep-action-card">
+              <div class="rep-card-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
+              <div class="rep-card-info">
+                <strong>Reporte de Inventario Valorizado</strong>
+                <span>Resumen de inversión por categoría y listado de stock y precios.</span>
+              </div>
+              <button type="button" id="rep-btn-print-inv" class="btn-gold">
+                <i class="fa-solid fa-print"></i> Ver / Imprimir PDF
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TARJETAS EJECUTIVAS DE MÉTRICAS -->
+        <div class="summary-strip summary-4">
+          <div class="sum-card sum-gold">
+            <span>FACTURACIÓN DEL TURNO ($)</span>
+            <strong id="rep-kpi-ventas-usd">$0.00</strong>
+            <small id="rep-kpi-ventas-bs" class="kpi-sub">0 Bs</small>
+          </div>
+          <div class="sum-card sum-green">
+            <span>GANANCIA ESTIMADA HOY ($)</span>
+            <strong id="rep-kpi-profit-usd">$0.00</strong>
+            <small id="rep-kpi-profit-pct" class="kpi-sub">Margen comercial</small>
+          </div>
+          <div class="sum-card sum-yellow">
+            <span>CARTERA POR COBRAR ($)</span>
+            <strong id="rep-kpi-deuda-usd">$1,498.20</strong>
+            <small id="rep-kpi-favor-usd" class="kpi-sub">Saldo a favor: $380.30</small>
+          </div>
+          <div class="sum-card">
+            <span>VALOR INVENTARIO (PRECIO VENTA)</span>
+            <strong id="rep-kpi-inv-venta">$0.00</strong>
+            <small class="kpi-sub">Costo Inversión: $16,609.61</small>
+          </div>
+        </div>
+
+        <!-- GRÁFICOS EJECUTIVOS VISUALES -->
+        <div class="reports-charts-grid">
+          <!-- GRÁFICO 1: DISTRIBUCIÓN POR MÉTODO DE PAGO -->
+          <div class="box">
+            <div class="box-header">
+              <h3><i class="fa-solid fa-chart-column text-gold"></i> Recaudación por Método de Pago</h3>
+              <span class="hint">Equivalente en Dólares ($) y Bolívares (Bs)</span>
+            </div>
+            <div id="chart-payments-bars" class="visual-bars-list"></div>
+          </div>
+
+          <!-- GRÁFICO 2: TOP PRODUCTOS MÁS VENDIDOS HOY -->
+          <div class="box">
+            <div class="box-header">
+              <h3><i class="fa-solid fa-ranking-star text-gold"></i> Top Productos Más Vendidos</h3>
+              <span class="hint">Ranking por ingresos en dólares ($) y unidades</span>
+            </div>
+            <div id="chart-top-products" class="visual-bars-list"></div>
+          </div>
+        </div>
+
+        <!-- RESUMEN DE INVERSIÓN POR DEPARTAMENTO Y PRINCIPALES DEUDORES -->
+        <div class="reports-charts-grid">
+          <div class="box">
+            <div class="box-header">
+              <h3><i class="fa-solid fa-vault text-gold"></i> Valoración de Inventario por Departamento</h3>
+            </div>
+            <div id="chart-inventory-depts" class="visual-bars-list"></div>
+          </div>
+
+          <div class="box">
+            <div class="box-header">
+              <h3><i class="fa-solid fa-user-Astronaut fa-user-tag text-gold"></i> Top 8 Clientes con Mayor Saldo Pendiente</h3>
+            </div>
+            <div id="chart-top-debtors" class="visual-bars-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====================================================================
+           PESTAÑA 6: CAJEROS Y USUARIOS (SOLO ADMIN dzara)
            ==================================================================== -->
       <section id="tab-cajeros" class="view">
         <div class="cierre-simple-layout">
@@ -494,7 +618,7 @@
     </main>
   </div>
 
-  <!-- MODAL SIMPLE: ABONAR / EDITAR CLIENTE -->
+  <!-- MODAL: ABONAR A CLIENTE -->
   <div id="abono-modal" class="modal-overlay hidden">
     <div class="modal-card">
       <h3 id="abono-modal-title" class="text-gold">Registrar Abono de Cliente</h3>
@@ -517,6 +641,50 @@
         <div class="modal-btns">
           <button type="button" id="close-abono-btn" class="btn-secondary">Cancelar</button>
           <button type="submit" class="btn-gold">Guardar Abono</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: CREAR / EDITAR PRODUCTO COMPLETO (NOMBRE, CATEGORÍA, PRECIO, STOCK, COSTO) -->
+  <div id="prod-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <h3 id="prod-modal-title" class="text-gold">Editar Producto</h3>
+      <form id="prod-form" class="simple-vertical-form">
+        <input type="hidden" id="prod-edit-id">
+        <div class="field">
+          <label>Nombre del Producto</label>
+          <input type="text" id="prod-name-inp" required placeholder="Ej: POLARCITA">
+        </div>
+        <div class="field">
+          <label>Categoría</label>
+          <select id="prod-cat-inp">
+            <option value="CERVEZA NACIONAL">CERVEZA NACIONAL</option>
+            <option value="NACIONAL">NACIONAL</option>
+            <option value="IMPORTADO">IMPORTADO</option>
+          </select>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+          <div class="field">
+            <label>Precio de Venta ($)</label>
+            <input type="number" id="prod-price-inp" step="0.01" min="0" required>
+          </div>
+          <div class="field">
+            <label>Cantidad en Stock</label>
+            <input type="number" id="prod-stock-inp" step="any" required>
+          </div>
+        </div>
+        <div class="field">
+          <label>Costo Unitario ($) (Opcional)</label>
+          <input type="number" id="prod-cost-inp" step="0.01" min="0">
+        </div>
+        <label class="yellow-check" style="margin-top:4px;">
+          <input type="checkbox" id="prod-quick-inp">
+          <span>Mostrar en Botones Rápidos de Caja</span>
+        </label>
+        <div class="modal-btns">
+          <button type="button" id="close-prod-btn" class="btn-secondary">Cancelar</button>
+          <button type="submit" class="btn-gold">Guardar Producto</button>
         </div>
       </form>
     </div>
