@@ -1,0 +1,125 @@
+# Worldiversity
+
+## Supabase Setup
+
+All platforms use the same Supabase project by default:
+
+- `SUPABASE_URL`: `https://cdplrbpfgkeqqsrdwagm.supabase.co`
+- `SUPABASE_ANON_KEY`: configured in `lib/core/config/app_config.dart`
+
+You can override those values at build/run time with:
+
+```bash
+flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+```
+
+Recommended local commands:
+
+```bash
+# iPhone simulator or physical iPhone
+RUBYOPT=-rlogger PATH=$HOME/.gem/ruby/2.6.0/bin:$HOME/development/flutter/bin:$PATH \
+flutter run -d <device-id> \
+  --dart-define=SUPABASE_URL=https://cdplrbpfgkeqqsrdwagm.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=sb_publishable_6r6s2GFjs9P9UbsK6euF3Q__l4LzQ15
+
+# Web
+flutter build web --release \
+  --dart-define=SUPABASE_URL=https://cdplrbpfgkeqqsrdwagm.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=sb_publishable_6r6s2GFjs9P9UbsK6euF3Q__l4LzQ15
+
+# Android
+flutter build apk --release \
+  --dart-define=SUPABASE_URL=https://cdplrbpfgkeqqsrdwagm.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=sb_publishable_6r6s2GFjs9P9UbsK6euF3Q__l4LzQ15
+```
+
+Firebase/FCM is optional for local compatibility. If platform Firebase files are
+missing, the app continues with Supabase features and skips push setup.
+
+Required values:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+
+Utility scripts (`check_db.dart`, `check_storage.dart`, `upload_to_supabase.dart`, `upload_to_supabase_v2.dart`) now read credentials from environment variables:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY` (for read/client scripts)
+- `SUPABASE_SERVICE_ROLE_KEY` (only for admin upload script)
+
+Never commit real service role keys to the repository.
+
+## VS Code Run Config
+
+This repo includes `.vscode/launch.json` with `--dart-define` values.
+Update:
+- `SUPABASE_ANON_KEY=sb_publishable_replace_me`
+
+Then run `Flutter (Supabase)` from VS Code Run and Debug.
+
+## Release Builds
+
+Android APK:
+
+```bash
+flutter build apk --release --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+```
+
+Windows (auto copia al Escritorio con secuencia por version):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_release_apk.ps1
+```
+
+Opcional:
+- `-OutputDir "C:\ruta\carpeta"` para cambiar destino.
+- `-AlsoCopyToRepoUpdates` para copiar tambien en `updates/`.
+
+Android App Bundle:
+
+```bash
+flutter build appbundle --release --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+```
+
+## GitHub Auto Deploy (Web + APK)
+
+This repo now includes GitHub Actions:
+
+- `.github/workflows/deploy_web_netlify.yml`
+  - On every push to `main`, builds `web` and deploys to Netlify production.
+- `.github/workflows/build_android_apk.yml`
+  - On every push to `main`, builds release APK and uploads artifact.
+  - On tag pushes like `v1.0.39`, also publishes APK files into GitHub Release.
+
+Required GitHub repository secrets:
+
+- `NETLIFY_AUTH_TOKEN`
+- `NETLIFY_SITE_ID`
+
+How to get them:
+
+1. Netlify user menu -> `User settings` -> `Applications` -> create `Personal access token` -> use as `NETLIFY_AUTH_TOKEN`.
+2. Netlify site -> `Site configuration` -> `General` -> `Site details` -> copy `Site ID` -> use as `NETLIFY_SITE_ID`.
+
+## Supabase Validation Checklist
+
+1. `Authentication > Providers`: enable only providers you use.
+2. `Table Editor`: enable RLS on all app tables.
+3. `Policies`: enforce ownership checks (for example `auth.uid() = user_id`).
+4. `Storage > Policies`: restrict upload/update/delete to owner paths.
+5. `Logs`: verify no suspicious API/DB/storage usage after key rotation.
+
+## RLS SQL Starter
+
+There is a starter SQL policy file for this app:
+- `supabase/rls_policies.sql`
+- `supabase/post_apply_checks.sql` (verification queries)
+
+Apply it from Supabase SQL Editor, then test app flows:
+- login/register
+- create post/comment/like/save
+- chat send/read
+- notifications read/update/delete
+
+Recommended order:
+1. Run `supabase/rls_policies.sql`
+2. Run `supabase/post_apply_checks.sql`
+3. Confirm all app tables show `rls_enabled = true`

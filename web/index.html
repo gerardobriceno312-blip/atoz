@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Bodegón & Market Ato'z | Más que un Bodegón - Delivery VIP</title>
+  <meta name="description" content="Bodegón & Market Ato'z. RIF: J-500277490. Servicio de delivery VIP de licores, tobos de cerveza, cócteles, mixers y delicateses.">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="logo.png">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Top Ambient Glow -->
+  <div class="ambient-glow top-glow"></div>
+  <div class="ambient-glow bottom-glow"></div>
+
+  <!-- Header Navigation -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-logo-container" data-tilt-hero onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+        <img src="logo.png" alt="Bodegón & Market Ato'z" class="header-official-logo">
+        <div class="brand-text-block">
+          <span class="brand-subtitle-top">BODEGÓN & MARKET</span>
+          <h1 class="brand-title">ATO'Z</h1>
+          <span class="brand-subtitle-bottom">MÁS QUE UN BODEGÓN</span>
+          <span class="brand-rif">RIF: J-500277490</span>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <span class="status-dot pulsing"></span>
+        <span class="status-text">BODEGÓN ABIERTO • DELIVERY EXPRÉS 🚀</span>
+      </div>
+
+      <div class="header-actions">
+        <button id="open-cart-btn" class="cart-trigger-btn" aria-label="Ver Carrito">
+          <i class="fa-solid fa-bag-shopping"></i>
+          <span class="cart-label">Carrito</span>
+          <span id="cart-badge-count" class="badge-counter">0</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section with 3D Floating Official Logo Card -->
+  <section class="hero-section">
+    <div class="hero-container">
+      <div class="hero-3d-card-wrapper">
+        <div class="hero-3d-card" id="hero-tilt-card">
+          <div class="card-glare"></div>
+          <div class="hero-card-layout">
+            <div class="hero-logo-side">
+              <img src="logo.png" alt="Logo Ato'z Bodegón" class="hero-logo-img">
+            </div>
+            <div class="hero-card-content">
+              <span class="hero-tag"><i class="fa-solid fa-wine-bottle"></i> BODEGÓN & MARKET ATO'Z</span>
+              <h2 class="hero-headline">MÁS QUE UN BODEGÓN. TU BODEGA VIP A DOMICILIO</h2>
+              <p class="hero-description">
+                Licores 100% originales, whiskies, rones añejos, tobos congelados, mixers, hielo y delicateses entregados directamente en tu puerta.
+              </p>
+              <div class="hero-features">
+                <div class="feature-item">
+                  <i class="fa-solid fa-bolt"></i>
+                  <span>Delivery Exprés</span>
+                </div>
+                <div class="feature-item">
+                  <i class="fa-solid fa-shield-halved"></i>
+                  <span>Licores Garantizados</span>
+                </div>
+                <div class="feature-item">
+                  <i class="fa-solid fa-id-card"></i>
+                  <span>RIF: J-500277490</span>
+                </div>
+              </div>
+              <div class="hero-buttons">
+                <a href="#menu-catalog" class="btn btn-gold btn-glow">
+                  <i class="fa-solid fa-store"></i> EXPLORAR BODEGÓN
+                </a>
+                <a href="https://wa.me/584120000000?text=Hola%20Bodeg%C3%B3n%20Ato'z,%20deseo%20hacer%20un%20pedido" target="_blank" class="btn btn-outline-gold">
+                  <i class="fa-brands fa-whatsapp"></i> ATENCIÓN WHATSAPP
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Search & Category Filter Section -->
+  <section id="menu-catalog" class="catalog-section">
+    <div class="catalog-header">
+      <div class="section-title-wrapper">
+        <h3 class="section-title">CATÁLOGO BODEGÓN & MARKET</h3>
+        <p class="section-subtitle">Selecciona tus licores y botellas para recibir tu pedido rápido vía WhatsApp</p>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="search-bar-container">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input type="text" id="search-input" placeholder="Buscar por ron, whisky, cerveza, vodka, hielo, snacks..." autocomplete="off">
+        <button id="clear-search-btn" class="clear-search-btn" style="display: none;">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Category Filter Tabs -->
+      <div class="category-tabs-wrapper">
+        <div class="category-tabs" id="category-tabs">
+          <button class="cat-tab active" data-category="all">
+            <i class="fa-solid fa-border-all"></i> Todo el Bodegón
+          </button>
+          <button class="cat-tab" data-category="licores">
+            <i class="fa-solid fa-wine-bottle"></i> Licores & Rones
+          </button>
+          <button class="cat-tab" data-category="whisky">
+            <i class="fa-solid fa-glass-whiskey"></i> Whiskies & Premium
+          </button>
+          <button class="cat-tab" data-category="cervezas">
+            <i class="fa-solid fa-beer-mug-empty"></i> Tobos & Cervezas
+          </button>
+          <button class="cat-tab" data-category="cocteles">
+            <i class="fa-solid fa-martini-glass-citrus"></i> Cócteles & Mixers
+          </button>
+          <button class="cat-tab" data-category="delicateses">
+            <i class="fa-solid fa-box-tissue"></i> Snacks & Hielo
+          </button>
+          <button class="cat-tab" data-category="combos">
+            <i class="fa-solid fa-bolt-lightning"></i> Combos Bodegón
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Product Grid Container -->
+    <div class="product-grid" id="product-grid">
+      <!-- Products generated dynamically by app.js -->
+    </div>
+  </section>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Shopping Cart Slide-Over Drawer -->
+  <div id="cart-drawer-overlay" class="cart-overlay"></div>
+  <aside id="cart-drawer" class="cart-drawer">
+    <div class="cart-header">
+      <div class="cart-header-title">
+        <i class="fa-solid fa-cart-shopping color-gold"></i>
+        <h4>CARRITO BODEGÓN</h4>
+        <span id="cart-items-count-text" class="cart-count-pill">0 productos</span>
+      </div>
+      <button id="close-cart-btn" class="close-cart-btn" aria-label="Cerrar Carrito">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <div class="cart-body">
+      <!-- Empty Cart View -->
+      <div id="empty-cart-view" class="empty-cart-view">
+        <div class="empty-cart-icon">
+          <i class="fa-solid fa-wine-bottle"></i>
+        </div>
+        <p class="empty-title">Tu carrito de Bodegón está vacío</p>
+        <p class="empty-subtitle">Agrega tus botellas o tobos preferidos para solicitar tu delivery.</p>
+        <button id="start-shopping-btn" class="btn btn-gold btn-sm margin-top-12">
+          EXPLORAR BODEGÓN
+        </button>
+      </div>
+
+      <!-- Items List -->
+      <div id="cart-items-list" class="cart-items-list" style="display: none;">
+        <!-- Cart Items rendered dynamically -->
+      </div>
+
+      <!-- Order Details Form -->
+      <form id="checkout-form" class="checkout-form" style="display: none;">
+        <div class="form-divider">
+          <span>DATOS DE DELIVERY</span>
+        </div>
+
+        <div class="form-group">
+          <label for="customer-name"><i class="fa-solid fa-user"></i> Tu Nombre</label>
+          <input type="text" id="customer-name" placeholder="Ej: Carlos Mendoza" required>
+        </div>
+
+        <div class="form-group">
+          <label for="customer-phone"><i class="fa-solid fa-phone"></i> Teléfono WhatsApp</label>
+          <input type="tel" id="customer-phone" placeholder="Ej: 0412 1234567" required>
+        </div>
+
+        <div class="form-group">
+          <label for="customer-address"><i class="fa-solid fa-location-dot"></i> Dirección de Entrega</label>
+          <textarea id="customer-address" rows="2" placeholder="Ej: Urb. Las Mercedes, Calle Los Mangos, Apt 4-B" required></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="payment-method"><i class="fa-solid fa-wallet"></i> Método de Pago</label>
+          <select id="payment-method" required>
+            <option value="Pago Móvil">⚡ Pago Móvil (Bs)</option>
+            <option value="Zelle">💵 Zelle ($)</option>
+            <option value="Efectivo en Divisas">💵 Efectivo Divisas ($)</option>
+            <option value="Punto de Venta Delivery">💳 Punto de Venta al Entregar</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="order-notes"><i class="fa-solid fa-comment-dots"></i> Indicaciones Especiales</label>
+          <input type="text" id="order-notes" placeholder="Ej: Traer hielera extra, billete de $50 para cambio...">
+        </div>
+      </form>
+    </div>
+
+    <!-- Cart Footer & Total Calculation -->
+    <div id="cart-footer" class="cart-footer" style="display: none;">
+      <div class="summary-rows">
+        <div class="summary-row">
+          <span>Subtotal</span>
+          <span id="cart-subtotal" class="summary-val">$0.00</span>
+        </div>
+        <div class="summary-row">
+          <span>Servicio Delivery</span>
+          <span id="cart-delivery-fee" class="summary-val">$2.00</span>
+        </div>
+        <div class="summary-row total-row">
+          <span>TOTAL A PAGAR</span>
+          <span id="cart-total" class="total-val">$2.00</span>
+        </div>
+      </div>
+
+      <button id="whatsapp-order-btn" type="button" class="btn btn-whatsapp btn-block btn-glow">
+        <i class="fa-brands fa-whatsapp fa-lg"></i> ENVIAR PEDIDO POR WHATSAPP
+      </button>
+    </div>
+  </aside>
+
+  <!-- Mobile Bottom Floating Navigation Bar -->
+  <nav class="mobile-bottom-nav">
+    <a href="#menu-catalog" class="mobile-nav-item active">
+      <i class="fa-solid fa-store"></i>
+      <span>Bodegón</span>
+    </a>
+    <button id="mobile-search-trigger" class="mobile-nav-item">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <span>Buscar</span>
+    </button>
+    <button id="mobile-cart-trigger" class="mobile-nav-item">
+      <div class="mobile-nav-icon-wrapper">
+        <i class="fa-solid fa-bag-shopping"></i>
+        <span id="mobile-badge-count" class="mobile-badge">0</span>
+      </div>
+      <span>Carrito</span>
+    </button>
+    <a href="https://wa.me/584120000000?text=Hola%20Bodeg%C3%B3n%20Ato'z,%20quisiera%20hacer%20un%20pedido" target="_blank" class="mobile-nav-item whatsapp-nav-item">
+      <i class="fa-brands fa-whatsapp"></i>
+      <span>WhatsApp</span>
+    </a>
+  </nav>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-container">
+      <img src="logo.png" alt="Bodegón & Market Ato'z Logo" class="footer-logo-img">
+      <div class="footer-brand">
+        <h4>BODEGÓN & MARKET ATO'Z</h4>
+        <p class="tagline">"MÁS QUE UN BODEGÓN"</p>
+        <p class="rif-text">RIF: J-500277490</p>
+      </div>
+      <div class="footer-info">
+        <p><i class="fa-solid fa-clock color-gold"></i> <strong>Horario:</strong> Abierto Todos los Días (10:00 AM - 3:00 AM)</p>
+        <p><i class="fa-solid fa-motorcycle color-gold"></i> <strong>Delivery:</strong> Rápido, discreto y seguro</p>
+      </div>
+      <div class="footer-credits">
+        <p>Diseñada por Ing. David Zara</p>
+        <p class="copyright">&copy; 2026 Bodegón & Market Ato'z. Todos los derechos reservados.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Main JavaScript File -->
+  <script src="app.js"></script>
+</body>
+</html>
