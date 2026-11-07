@@ -1,0 +1,28 @@
+name: Compilar Instalador Windows (.EXE)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependencias de empaquetado
+        run: npm install
+
+      - name: Generar archivos .EXE para Windows (Instalador y Portable)
+        run: npm run dist-win
+
+      - name: Subir Ejecutables .EXE listos para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bodegon-Atoz-Windows-EXE
+          path: dist/*.exe

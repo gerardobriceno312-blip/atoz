@@ -1,7 +1,12 @@
 /**
  * ============================================================================
- * BODEGÓN & MARKET ATO'Z - SISTEMA ADMINISTRATIVO, INVENTARIO Y REPORTES
+ * BODEGÓN & MARKET ATO'Z - SISTEMA ADMINISTRATIVO, INVENTARIO, CAJA Y REPORTES
  * Usuario Admin: dzara | Contraseña: dzara
+ * Incluye:
+ *  - Cobro de Deuda Detallada en Caja (con desglose de productos que debe)
+ *  - Sincronización Multi-PC con Supabase + Respaldo Local PC (.JSON)
+ *  - Soporte 100% Offline (Sin Internet) e Instalador Windows (.EXE / PWA)
+ *  - Tasa Oficial BCV Automática con precisión exacta de 2 decimales
  * ============================================================================
  */
 
@@ -11,7 +16,117 @@
   const STORAGE_KEY = 'ATOZ_SIMPLE_SYSTEM_V2';
   const SESSION_KEY = 'ATOZ_SIMPLE_SESSION_V2';
 
+  // Configuración oficial de Supabase del proyecto Ato'z
+  const SUPABASE_URL = 'https://woqhzmetfbfubkcdqtmh.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_vAh5dgmwqIeE7xWYz2QtzQ__CBMD-c7';
+
+  const SUPABASE_SQL_SCRIPT = `-- ============================================================================
+-- BODEGÓN & MARKET ATO'Z - SCRIPT COMPLETO DE TABLAS PARA SUPABASE
+-- Instrucciones: Copia todo este código, entra a tu proyecto en Supabase ->
+-- "SQL Editor" -> "New Query", pégalo y presiona "RUN".
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.atoz_cloud_state (
+  id TEXT PRIMARY KEY DEFAULT 'principal',
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  exchange_rate NUMERIC(12,2) DEFAULT 1000.00,
+  payload JSONB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.atoz_productos (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT DEFAULT 'NACIONAL',
+  price NUMERIC(12,2) DEFAULT 0,
+  cost NUMERIC(12,2) DEFAULT 0,
+  margin NUMERIC(8,2) DEFAULT 50,
+  stock NUMERIC(12,2) DEFAULT 0,
+  quick BOOLEAN DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.atoz_clientes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  deuda NUMERIC(12,2) DEFAULT 0,
+  a_favor NUMERIC(12,2) DEFAULT 0,
+  note TEXT DEFAULT '',
+  items_pendientes JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.atoz_ventas (
+  id TEXT PRIMARY KEY,
+  fecha DATE DEFAULT CURRENT_DATE,
+  hora TEXT,
+  product TEXT NOT NULL,
+  qty NUMERIC(12,2) DEFAULT 1,
+  price NUMERIC(12,2) DEFAULT 0,
+  total_usd NUMERIC(12,2) DEFAULT 0,
+  total_consumo_usd NUMERIC(12,2) DEFAULT 0,
+  pago_movil_bs NUMERIC(14,2) DEFAULT 0,
+  divisas_usd NUMERIC(12,2) DEFAULT 0,
+  efectivo_bs NUMERIC(14,2) DEFAULT 0,
+  punto_bs NUMERIC(14,2) DEFAULT 0,
+  zelle_usd NUMERIC(12,2) DEFAULT 0,
+  client TEXT DEFAULT '',
+  pendiente_usd NUMERIC(12,2) DEFAULT 0,
+  abonado_usd NUMERIC(12,2) DEFAULT 0,
+  highlight BOOLEAN DEFAULT false,
+  cashier TEXT DEFAULT 'dzara',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.atoz_cierres (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  cashier TEXT NOT NULL,
+  total_usd NUMERIC(12,2) DEFAULT 0,
+  punto_bs NUMERIC(14,2) DEFAULT 0,
+  pm_bs NUMERIC(14,2) DEFAULT 0,
+  ef_bs NUMERIC(14,2) DEFAULT 0,
+  div_usd NUMERIC(12,2) DEFAULT 0,
+  zelle_usd NUMERIC(12,2) DEFAULT 0,
+  nota TEXT DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.atoz_usuarios (
+  id TEXT PRIMARY KEY,
+  full_name TEXT NOT NULL,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  role TEXT DEFAULT 'CAJERO',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.atoz_cloud_state ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.atoz_productos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.atoz_clientes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.atoz_ventas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.atoz_cierres ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.atoz_usuarios ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Acceso total atoz_cloud_state" ON public.atoz_cloud_state;
+CREATE POLICY "Acceso total atoz_cloud_state" ON public.atoz_cloud_state FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total atoz_productos" ON public.atoz_productos;
+CREATE POLICY "Acceso total atoz_productos" ON public.atoz_productos FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total atoz_clientes" ON public.atoz_clientes;
+CREATE POLICY "Acceso total atoz_clientes" ON public.atoz_clientes FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total atoz_ventas" ON public.atoz_ventas;
+CREATE POLICY "Acceso total atoz_ventas" ON public.atoz_ventas FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total atoz_cierres" ON public.atoz_cierres;
+CREATE POLICY "Acceso total atoz_cierres" ON public.atoz_cierres FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Acceso total atoz_usuarios" ON public.atoz_usuarios;
+CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING (true) WITH CHECK (true);`;
+
   let state = {
+    updatedAt: 0,
     exchangeRate: 1000,
     payMethod: 'punto',
     users: [
@@ -27,14 +142,43 @@
   let currentUser = null;
   let invPage = 1;
   const PAGE_SIZE = 50;
+  let deferredInstallPrompt = null;
+  let cloudSyncTimer = null;
 
   // ==========================================================================
-  // 1. INICIO Y ALMACENAMIENTO
+  // 1. INICIO, MODO OFFLINE (SERVICE WORKER) Y ALMACENAMIENTO MULTI-PC
   // ==========================================================================
   function init() {
+    registerOfflineServiceWorker();
     loadState();
+    ensureClientsItemizedDebt();
     bindEvents();
     checkSession();
+    initSqlBox();
+    pullFromSupabaseCloud(false);
+
+    // Sincronizar automáticamente al volver a la ventana o cambiar de PC
+    window.addEventListener('focus', () => {
+      pullFromSupabaseCloud(false);
+    });
+    setInterval(() => {
+      pullFromSupabaseCloud(false);
+    }, 25000);
+  }
+
+  function registerOfflineServiceWorker() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+    });
+  }
+
+  function initSqlBox() {
+    const sqlArea = document.getElementById('supabase-sql-textarea');
+    if (sqlArea) sqlArea.value = SUPABASE_SQL_SCRIPT;
   }
 
   function loadState() {
@@ -43,9 +187,13 @@
 
     if (saved) {
       try {
-        state = Object.assign({}, state, JSON.parse(saved));
-        if (!state.users.some(u => u.username.toLowerCase() === 'dzara')) {
-          state.users.unshift({ id: 'u1', fullName: 'David Zara', username: 'dzara', password: 'dzara', role: 'ADMIN' });
+        const parsed = JSON.parse(saved);
+        state = Object.assign({}, state, parsed);
+        if (!state.users || !state.users.some(u => u.username.toLowerCase() === 'dzara')) {
+          state.users = [
+            { id: 'u1', fullName: 'David Zara', username: 'dzara', password: 'dzara', role: 'ADMIN' },
+            ...(state.users || [])
+          ];
         }
         return;
       } catch (e) {
@@ -53,15 +201,201 @@
       }
     }
 
+    state.updatedAt = Date.now();
     state.exchangeRate = initial.defaultExchangeRate || 1000;
     state.products = JSON.parse(JSON.stringify(initial.products || []));
     state.clients = JSON.parse(JSON.stringify(initial.clients || []));
     state.dailySales = JSON.parse(JSON.stringify(initial.dailySales || []));
-    saveState();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
-  function saveState() {
+  // Garantiza que todos los clientes con deuda tengan el desglose detallado de lo que deben
+  function ensureClientsItemizedDebt() {
+    if (!Array.isArray(state.clients)) state.clients = [];
+    state.clients.forEach(c => {
+      if (!Array.isArray(c.itemsPendientes)) {
+        c.itemsPendientes = [];
+      }
+      const deudaActual = round2(Number(c.deuda) || 0);
+      if (deudaActual <= 0) {
+        c.itemsPendientes = [];
+        return;
+      }
+
+      // Si no tiene items detallados cargados, buscar en las ventas pendientes o crear el detalle base
+      if (c.itemsPendientes.length === 0) {
+        const clientSales = (state.dailySales || []).filter(
+          s => (s.client || '').toUpperCase() === (c.name || '').toUpperCase() && Number(s.pendienteUsd) > 0
+        );
+        let sumItems = 0;
+        clientSales.forEach(s => {
+          const sub = round2(Number(s.pendienteUsd) || Number(s.totalUsd) || 0);
+          sumItems = round2(sumItems + sub);
+          c.itemsPendientes.push({
+            id: `it-${s.id}`,
+            date: s.hora || 'Consumo en Caja',
+            product: s.product || 'CONSUMO',
+            qty: Number(s.qty) || 1,
+            price: Number(s.price) || sub,
+            totalUsd: sub
+          });
+        });
+
+        const diff = round2(deudaActual - sumItems);
+        if (diff > 0.009) {
+          c.itemsPendientes.unshift({
+            id: `it-base-${c.id}`,
+            date: 'Cuenta Acumulada',
+            product: c.note && c.note !== 'PENDIENTE' ? `CONSUMO PENDIENTE (${c.note})` : 'SALDO PENDIENTE DE CONSUMO EN BODEGÓN',
+            qty: 1,
+            price: diff,
+            totalUsd: diff
+          });
+        }
+      } else {
+        // Ajustar si hay diferencia entre la suma de items y la deuda total
+        const sumItems = round2(c.itemsPendientes.reduce((acc, it) => acc + (Number(it.totalUsd) || 0), 0));
+        const diff = round2(deudaActual - sumItems);
+        if (Math.abs(diff) > 0.02) {
+          if (diff > 0) {
+            c.itemsPendientes.push({
+              id: `it-adj-${Date.now()}`,
+              date: 'Saldo Pendiente',
+              product: 'AJUSTE / SALDO ACUMULADO',
+              qty: 1,
+              price: diff,
+              totalUsd: diff
+            });
+          }
+        }
+      }
+    });
+  }
+
+  function saveState(pushToCloud = true) {
+    state.updatedAt = Date.now();
+    ensureClientsItemizedDebt();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (pushToCloud) {
+      if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
+      cloudSyncTimer = setTimeout(() => {
+        pushToSupabaseCloud(false);
+      }, 400);
+    }
+  }
+
+  // ==========================================================================
+  // 1A. SINCRONIZACIÓN EN LA NUBE CON SUPABASE (MULTI-PC)
+  // ==========================================================================
+  function setCloudBadge(statusText, isOnline = true) {
+    const badge = document.getElementById('cloud-status-badge');
+    const txt = document.getElementById('cloud-status-text');
+    const sysLbl = document.getElementById('sys-cloud-status-label');
+    if (txt) txt.textContent = statusText;
+    if (badge) badge.classList.toggle('offline', !isOnline);
+    if (sysLbl) {
+      sysLbl.textContent = statusText;
+      sysLbl.className = isOnline ? 'text-green' : 'text-yellow';
+    }
+  }
+
+  async function pushToSupabaseCloud(manualNotify = false) {
+    if (!navigator.onLine) {
+      setCloudBadge('Modo Local Sin Internet (Guardado en PC)', false);
+      return;
+    }
+    try {
+      const body = {
+        id: 'principal',
+        updated_at: new Date().toISOString(),
+        exchange_rate: Number(state.exchangeRate) || 1000,
+        payload: {
+          updatedAt: state.updatedAt || Date.now(),
+          exchangeRate: state.exchangeRate,
+          users: state.users,
+          products: state.products,
+          clients: state.clients,
+          dailySales: state.dailySales,
+          closures: state.closures
+        }
+      };
+
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/atoz_cloud_state?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (res.ok) {
+        setCloudBadge('Nube Sincronizada (Multi-PC Activo)', true);
+        if (manualNotify) toast('¡Datos guardados y sincronizados en la nube para todas las PCs!');
+      } else {
+        setCloudBadge('Guardado en PC (Activa SQL en pestaña 6 para Multi-PC)', false);
+        if (manualNotify) {
+          toast('Guardado en esta PC. Para sincronizar otra PC, copia el SQL de la pestaña 6 en Supabase.');
+        }
+      }
+    } catch (e) {
+      setCloudBadge('Modo Local / Offline Activo', false);
+    }
+  }
+
+  async function pullFromSupabaseCloud(manualNotify = false) {
+    if (!navigator.onLine) {
+      setCloudBadge('Modo Local Sin Internet (Guardado en PC)', false);
+      return;
+    }
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/atoz_cloud_state?id=eq.principal&select=*`, {
+        method: 'GET',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        },
+        cache: 'no-store'
+      });
+
+      if (!res.ok) {
+        setCloudBadge('Guardado en PC (Ver Pestaña 6: BD / Windows)', false);
+        return;
+      }
+
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].payload) {
+        const cloudData = rows[0].payload;
+        const cloudTime = Number(cloudData.updatedAt) || 0;
+        const localTime = Number(state.updatedAt) || 0;
+
+        // Si la nube tiene datos más recientes o se pidió descarga manual
+        if (manualNotify || cloudTime > localTime) {
+          state.updatedAt = cloudTime || Date.now();
+          if (Array.isArray(cloudData.products) && cloudData.products.length) state.products = cloudData.products;
+          if (Array.isArray(cloudData.clients) && cloudData.clients.length) state.clients = cloudData.clients;
+          if (Array.isArray(cloudData.dailySales)) state.dailySales = cloudData.dailySales;
+          if (Array.isArray(cloudData.closures)) state.closures = cloudData.closures;
+          if (Array.isArray(cloudData.users) && cloudData.users.length) state.users = cloudData.users;
+          if (Number(cloudData.exchangeRate) > 0) state.exchangeRate = Number(cloudData.exchangeRate);
+
+          ensureClientsItemizedDebt();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          if (currentUser) renderAll();
+          if (manualNotify) toast('¡Ventas, clientes e inventario actualizados desde la nube!');
+        } else if (localTime > cloudTime) {
+          pushToSupabaseCloud(false);
+        }
+        setCloudBadge('Nube Sincronizada (Multi-PC Activo)', true);
+      } else {
+        // Subir estado inicial a la tabla recién creada
+        pushToSupabaseCloud(false);
+      }
+    } catch (e) {
+      setCloudBadge('Modo Local / Offline Activo', false);
+    }
   }
 
   function checkSession() {
@@ -87,7 +421,7 @@
 
     document.getElementById('active-user-badge').textContent = `${currentUser.role}: ${currentUser.fullName}`;
     document.getElementById('cierre-user-label').textContent = `Cajero: ${currentUser.fullName}`;
-    document.getElementById('global-rate-input').value = state.exchangeRate;
+    document.getElementById('global-rate-input').value = Number(state.exchangeRate).toFixed(2);
 
     document.querySelectorAll('.admin-only').forEach(el => {
       el.classList.toggle('hidden', currentUser.role !== 'ADMIN');
@@ -99,13 +433,17 @@
   }
 
   // ==========================================================================
-  // 1B. ACTUALIZACIÓN 100% AUTOMÁTICA DE TASA OFICIAL BCV POR API
+  // 1B. ACTUALIZACIÓN 100% AUTOMÁTICA DE TASA OFICIAL BCV POR API (Y OFFLINE)
   // ==========================================================================
   let liveBcvRate = null;
 
   async function fetchBcvRateAuto(showToastOnSuccess = true) {
     const icon = document.getElementById('sync-rate-icon');
     const lbl = document.getElementById('lbl-rate-bcv');
+    if (!navigator.onLine) {
+      if (lbl) lbl.textContent = `${fmt(state.exchangeRate, 2)} Bs (Local)`;
+      return;
+    }
     if (icon) icon.classList.add('spin');
 
     let fetchedRate = null;
@@ -121,7 +459,7 @@
       }
     } catch (e) {}
 
-    // Intento 2: Lista general DolarApi (si el endpoint individual falló)
+    // Intento 2: Lista general DolarApi (solo oficial)
     if (!fetchedRate) {
       try {
         const res2 = await fetch('https://ve.dolarapi.com/v1/dolares', { cache: 'no-store' });
@@ -152,11 +490,10 @@
 
     if (fetchedRate && fetchedRate > 0) {
       liveBcvRate = fetchedRate;
-      if (lbl) lbl.textContent = `${liveBcvRate.toFixed(2)} Bs`;
-      // Activar automáticamente la tasa oficial BCV en todo el sistema
+      if (lbl) lbl.textContent = `${fmt(liveBcvRate, 2)} Bs`;
       applyBcvExchangeRate(liveBcvRate, showToastOnSuccess);
     } else {
-      if (lbl && !liveBcvRate) lbl.textContent = `${Number(state.exchangeRate).toFixed(2)} Bs`;
+      if (lbl && !liveBcvRate) lbl.textContent = `${fmt(state.exchangeRate, 2)} Bs`;
     }
   }
 
@@ -169,17 +506,24 @@
     if (bcvBtn) bcvBtn.classList.add('active');
     saveState();
     updateLiveTotal();
+    renderCajaDebtSection();
+    renderSalesTable();
+    renderClientsView();
     renderInventoryView();
     renderReportsView();
     if (notify) {
-      toast(`Tasa Oficial BCV activada automáticamente: ${state.exchangeRate.toFixed(2)} Bs/$`);
+      toast(`Tasa Oficial BCV activada: ${fmt(state.exchangeRate, 2)} Bs/$`);
     }
   }
 
   function renderAll() {
+    ensureClientsItemizedDebt();
+    const inp = document.getElementById('global-rate-input');
+    if (inp) inp.value = Number(state.exchangeRate).toFixed(2);
     renderDatalists();
     renderQuickButtons();
     updateLiveTotal();
+    renderCajaDebtSection();
     renderSalesTable();
     renderCierreView();
     renderClientsView();
@@ -189,7 +533,7 @@
   }
 
   // ==========================================================================
-  // 2. CAJA DIARIA
+  // 2. CAJA DIARIA + SECCIÓN PARA COBRAR AL CLIENTE CON DEUDA DETALLADA
   // ==========================================================================
   function renderDatalists() {
     document.getElementById('datalist-products').innerHTML = state.products
@@ -197,7 +541,7 @@
       .join('');
 
     document.getElementById('datalist-clients').innerHTML = state.clients
-      .map(c => `<option value="${esc(c.name)}">${c.deuda > 0 ? 'Debe $' + c.deuda : ''}</option>`)
+      .map(c => `<option value="${esc(c.name)}">${c.deuda > 0 ? 'Debe $' + fmt(c.deuda, 2) : ''}</option>`)
       .join('');
   }
 
@@ -210,7 +554,7 @@
       <button type="button" class="q-btn" data-name="${esc(p.name)}" data-price="${p.price}">
         <strong>${esc(p.name)}</strong>
         <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-          <span>$${Number(p.price).toFixed(2)}</span>
+          <span>$${fmt(p.price, 2)}</span>
           <small style="font-size:11px; color:var(--muted);">Stock: ${p.stock ?? 0}</small>
         </div>
       </button>
@@ -248,17 +592,172 @@
     document.getElementById('display-total-bs').textContent = `${fmt(totalBs, 2)} Bs`;
   }
 
+  // SECCIÓN EN CAJA: COBRAR A CLIENTE CON DEUDA Y VER DETALLE DE LO QUE DEBE
+  function renderCajaDebtSection(preselectClientId = null) {
+    const sel = document.getElementById('caja-debt-client-select');
+    if (!sel) return;
+    const currentVal = preselectClientId !== null ? preselectClientId : sel.value;
+    const rate = parseFloat(state.exchangeRate) || 1000;
+
+    const debtors = state.clients
+      .filter(c => (Number(c.deuda) || 0) > 0)
+      .sort((a, b) => (Number(b.deuda) || 0) - (Number(a.deuda) || 0));
+
+    sel.innerHTML =
+      `<option value="">-- Seleccionar Cliente con Deuda (${debtors.length} pendientes) --</option>` +
+      debtors
+        .map(
+          c =>
+            `<option value="${c.id}" ${c.id === currentVal ? 'selected' : ''}>${esc(c.name)} — Debe: $${fmt(c.deuda, 2)} (${fmt(round2(c.deuda * rate), 2)} Bs)</option>`
+        )
+        .join('');
+
+    renderSelectedCajaDebtClient(sel.value);
+  }
+
+  function renderSelectedCajaDebtClient(clientId) {
+    const panel = document.getElementById('caja-debt-detail-panel');
+    if (!panel) return;
+    const c = state.clients.find(x => x.id === clientId && (Number(x.deuda) || 0) > 0);
+    if (!c) {
+      panel.classList.add('hidden');
+      return;
+    }
+
+    panel.classList.remove('hidden');
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    const totalDeudaUsd = round2(Number(c.deuda) || 0);
+    const totalDeudaBs = round2(totalDeudaUsd * rate);
+
+    document.getElementById('debt-cli-name').textContent = c.name;
+    document.getElementById('debt-total-usd').textContent = `$${fmt(totalDeudaUsd, 2)}`;
+    document.getElementById('debt-total-bs').textContent = `${fmt(totalDeudaBs, 2)} Bs`;
+
+    const items = Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
+      ? c.itemsPendientes
+      : [
+          {
+            id: 'base',
+            date: 'Cuenta Pendiente',
+            product: 'SALDO PENDIENTE ACUMULADO',
+            qty: 1,
+            price: totalDeudaUsd,
+            totalUsd: totalDeudaUsd
+          }
+        ];
+
+    const tbody = document.getElementById('debt-items-tbody');
+    tbody.innerHTML = items
+      .map(it => {
+        const subUsd = round2(Number(it.totalUsd) || 0);
+        const subBs = round2(subUsd * rate);
+        return `
+        <tr>
+          <td style="text-align:left; font-size:12px; color:var(--muted);">${esc(it.date || 'Pendiente')}</td>
+          <td style="text-align:left;"><strong>${esc(it.product)}</strong></td>
+          <td>${it.qty ?? 1}</td>
+          <td>$${fmt(it.price, 2)}</td>
+          <td><strong class="${subUsd < 0 ? 'text-green' : 'text-yellow'}">$${fmt(subUsd, 2)}</strong></td>
+          <td><strong>${fmt(subBs, 2)} Bs</strong></td>
+        </tr>
+      `;
+      })
+      .join('');
+
+    const payInput = document.getElementById('caja-debt-pay-usd');
+    payInput.value = totalDeudaUsd.toFixed(2);
+    updateCajaDebtLiveBs();
+  }
+
+  function updateCajaDebtLiveBs() {
+    const payUsd = parseFloat(document.getElementById('caja-debt-pay-usd')?.value) || 0;
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    const exactBs = round2(payUsd * rate);
+    const lbl = document.getElementById('caja-debt-pay-bs-label');
+    if (lbl) lbl.textContent = `${fmt(exactBs, 2)} Bs`;
+  }
+
+  function processClientDebtPayment(clientId, montoUsd, metodoPago) {
+    const c = state.clients.find(x => x.id === clientId);
+    const monto = round2(parseFloat(montoUsd) || 0);
+    if (!c || monto <= 0) return;
+
+    const deudaAnterior = round2(Number(c.deuda) || 0);
+    const detalleResumen = (c.itemsPendientes || [])
+      .map(i => `${i.qty || 1}x ${i.product}`)
+      .slice(0, 3)
+      .join(', ');
+
+    if (deudaAnterior >= monto) {
+      c.deuda = round2(deudaAnterior - monto);
+      if (c.deuda <= 0.009) {
+        c.deuda = 0;
+        c.itemsPendientes = [];
+      } else {
+        c.itemsPendientes.push({
+          id: `ab-${Date.now()}`,
+          date: new Date().toLocaleDateString('es-VE'),
+          product: `ABONO EN CAJA (${metodoPago.toUpperCase()})`,
+          qty: 1,
+          price: -monto,
+          totalUsd: -monto
+        });
+      }
+    } else {
+      const sobra = round2(monto - deudaAnterior);
+      c.deuda = 0;
+      c.itemsPendientes = [];
+      c.aFavor = round2((Number(c.aFavor) || 0) + sobra);
+    }
+
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    const exactBs = round2(monto * rate);
+
+    state.dailySales.unshift({
+      id: `s-${Date.now()}`,
+      hora: new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }),
+      product: `COBRO DEUDA: ${c.name}${detalleResumen ? ' (' + detalleResumen + ')' : ''}`,
+      qty: 1,
+      price: monto,
+      totalUsd: 0,
+      totalConsumoUsd: 0,
+      pagoMovilBs: metodoPago === 'pagomovil' ? exactBs : 0,
+      divisasUsd: metodoPago === 'divisas' ? monto : 0,
+      efectivoBs: metodoPago === 'efectivobs' ? exactBs : 0,
+      puntoBs: metodoPago === 'punto' ? exactBs : 0,
+      zelleUsd: metodoPago === 'zelle' ? monto : 0,
+      client: c.name,
+      pendienteUsd: 0,
+      abonadoUsd: monto,
+      highlight: false
+    });
+
+    saveState();
+    renderCajaDebtSection(c.deuda > 0 ? c.id : '');
+    renderSalesTable();
+    renderClientsView();
+    renderCierreView();
+    renderReportsView();
+    renderDatalists();
+
+    toast(
+      c.deuda > 0
+        ? `Abono de $${fmt(monto, 2)} (${fmt(exactBs, 2)} Bs) registrado a ${c.name}. Resta: $${fmt(c.deuda, 2)}`
+        : `¡Deuda de ${c.name} cobrada en su totalidad ($${fmt(monto, 2)} / ${fmt(exactBs, 2)} Bs)!`
+    );
+  }
+
   function getTotals() {
     const t = { usd: 0, pmBs: 0, divUsd: 0, efBs: 0, puntoBs: 0, zelleUsd: 0, pendUsd: 0, abonUsd: 0 };
     state.dailySales.forEach(s => {
-      t.usd += Number(s.totalUsd) || 0;
-      t.pmBs += Number(s.pagoMovilBs) || 0;
-      t.divUsd += Number(s.divisasUsd) || 0;
-      t.efBs += Number(s.efectivoBs) || 0;
-      t.puntoBs += Number(s.puntoBs) || 0;
-      t.zelleUsd += Number(s.zelleUsd) || 0;
-      t.pendUsd += Number(s.pendienteUsd) || 0;
-      t.abonUsd += Number(s.abonadoUsd) || 0;
+      t.usd = round2(t.usd + (Number(s.totalUsd) || 0));
+      t.pmBs = round2(t.pmBs + (Number(s.pagoMovilBs) || 0));
+      t.divUsd = round2(t.divUsd + (Number(s.divisasUsd) || 0));
+      t.efBs = round2(t.efBs + (Number(s.efectivoBs) || 0));
+      t.puntoBs = round2(t.puntoBs + (Number(s.puntoBs) || 0));
+      t.zelleUsd = round2(t.zelleUsd + (Number(s.zelleUsd) || 0));
+      t.pendUsd = round2(t.pendUsd + (Number(s.pendienteUsd) || 0));
+      t.abonUsd = round2(t.abonUsd + (Number(s.abonadoUsd) || 0));
     });
     return t;
   }
@@ -266,10 +765,10 @@
   function renderSalesTable() {
     const t = getTotals();
     document.getElementById('sum-total-usd').textContent = `$${fmt(t.usd, 2)}`;
-    document.getElementById('sum-punto-bs').textContent = `${fmt(t.puntoBs, 0)} Bs`;
-    document.getElementById('sum-pm-bs').textContent = `${fmt(t.pmBs, 0)} Bs`;
+    document.getElementById('sum-punto-bs').textContent = `${fmt(t.puntoBs, 2)} Bs`;
+    document.getElementById('sum-pm-bs').textContent = `${fmt(t.pmBs, 2)} Bs`;
     document.getElementById('sum-divisas-usd').textContent = `$${fmt(t.divUsd, 2)}`;
-    document.getElementById('sum-ef-zelle').textContent = `${fmt(t.efBs, 0)} Bs / $${fmt(t.zelleUsd, 2)}`;
+    document.getElementById('sum-ef-zelle').textContent = `${fmt(t.efBs, 2)} Bs / $${fmt(t.zelleUsd, 2)}`;
     document.getElementById('sum-pendiente-usd').textContent = `$${fmt(t.pendUsd, 2)}`;
 
     const search = (document.getElementById('search-sales').value || '').toLowerCase();
@@ -288,10 +787,10 @@
         <td>$${fmt(s.price, 2)}</td>
         <td><strong>$${fmt(s.totalUsd, 2)}</strong></td>
         <td>$${fmt(s.totalConsumoUsd || s.totalUsd, 2)}</td>
-        <td>${s.pagoMovilBs > 0 ? fmt(s.pagoMovilBs, 0) : ''}</td>
+        <td>${s.pagoMovilBs > 0 ? fmt(s.pagoMovilBs, 2) : ''}</td>
         <td>${s.divisasUsd > 0 ? '$' + fmt(s.divisasUsd, 2) : ''}</td>
-        <td>${s.efectivoBs > 0 ? fmt(s.efectivoBs, 0) : ''}</td>
-        <td>${s.puntoBs > 0 ? fmt(s.puntoBs, 0) : ''}</td>
+        <td>${s.efectivoBs > 0 ? fmt(s.efectivoBs, 2) : ''}</td>
+        <td>${s.puntoBs > 0 ? fmt(s.puntoBs, 2) : ''}</td>
         <td>${s.zelleUsd > 0 ? '$' + fmt(s.zelleUsd, 2) : ''}</td>
         <td style="text-align:left;"><strong>${esc(s.client || '')}</strong></td>
         <td>${s.pendienteUsd > 0 ? '$' + fmt(s.pendienteUsd, 2) : ''}</td>
@@ -307,13 +806,13 @@
 
     document.getElementById('sales-tfoot').innerHTML = `
       <tr>
-        <td colspan="3" style="text-align:left;">TOTALES DEL DÍA (${state.dailySales.length} ventas)</td>
+        <td colspan="3" style="text-align:left;">TOTALES DEL DÍA (${state.dailySales.length} registros)</td>
         <td>$${fmt(t.usd, 2)}</td>
         <td>$${fmt(t.usd, 2)}</td>
-        <td>${fmt(t.pmBs, 0)} Bs</td>
+        <td>${fmt(t.pmBs, 2)} Bs</td>
         <td>$${fmt(t.divUsd, 2)}</td>
-        <td>${fmt(t.efBs, 0)} Bs</td>
-        <td>${fmt(t.puntoBs, 0)} Bs</td>
+        <td>${fmt(t.efBs, 2)} Bs</td>
+        <td>${fmt(t.puntoBs, 2)} Bs</td>
         <td>$${fmt(t.zelleUsd, 2)}</td>
         <td></td>
         <td>$${fmt(t.pendUsd, 2)}</td>
@@ -338,20 +837,26 @@
         const saleId = b.getAttribute('data-id');
         const deletedSale = state.dailySales.find(x => x.id === saleId);
         if (deletedSale) {
+          // Restaurar stock si era un producto del inventario
           const invItem = state.products.find(p => p.name.toUpperCase() === (deletedSale.product || '').toUpperCase());
           if (invItem) {
             invItem.stock = round2((Number(invItem.stock) || 0) + (Number(deletedSale.qty) || 1));
           }
+          // Si era una venta fiada, descontarla también de la deuda del cliente
+          if (Number(deletedSale.pendienteUsd) > 0 && deletedSale.client) {
+            const c = state.clients.find(x => x.name.toUpperCase() === deletedSale.client.toUpperCase());
+            if (c) {
+              c.deuda = Math.max(0, round2((Number(c.deuda) || 0) - Number(deletedSale.pendienteUsd)));
+              if (Array.isArray(c.itemsPendientes)) {
+                c.itemsPendientes = c.itemsPendientes.filter(it => it.id !== `it-${deletedSale.id}`);
+              }
+            }
+          }
         }
         state.dailySales = state.dailySales.filter(x => x.id !== saleId);
         saveState();
-        renderQuickButtons();
-        renderDatalists();
-        renderSalesTable();
-        renderInventoryView();
-        renderCierreView();
-        renderReportsView();
-        toast('Venta eliminada y stock restaurado al inventario');
+        renderAll();
+        toast('Registro eliminado y stock/cuenta actualizado');
       });
     });
   }
@@ -361,16 +866,16 @@
   // ==========================================================================
   function renderCierreView() {
     const t = getTotals();
-    const totalBs = t.puntoBs + t.pmBs + t.efBs;
-    const totalDiv = t.divUsd + t.zelleUsd;
+    const totalBs = round2(t.puntoBs + t.pmBs + t.efBs);
+    const totalDiv = round2(t.divUsd + t.zelleUsd);
 
     document.getElementById('cierre-total-usd').textContent = `$${fmt(t.usd, 2)}`;
-    document.getElementById('cierre-total-bs').textContent = `${fmt(totalBs, 0)} Bs`;
+    document.getElementById('cierre-total-bs').textContent = `${fmt(totalBs, 2)} Bs`;
     document.getElementById('cierre-total-divisas').textContent = `$${fmt(totalDiv, 2)}`;
 
-    document.getElementById('cierre-line-punto').textContent = `${fmt(t.puntoBs, 0)} Bs`;
-    document.getElementById('cierre-line-pm').textContent = `${fmt(t.pmBs, 0)} Bs`;
-    document.getElementById('cierre-line-efbs').textContent = `${fmt(t.efBs, 0)} Bs`;
+    document.getElementById('cierre-line-punto').textContent = `${fmt(t.puntoBs, 2)} Bs`;
+    document.getElementById('cierre-line-pm').textContent = `${fmt(t.pmBs, 2)} Bs`;
+    document.getElementById('cierre-line-efbs').textContent = `${fmt(t.efBs, 2)} Bs`;
     document.getElementById('cierre-line-divisas').textContent = `$${fmt(t.divUsd, 2)}`;
     document.getElementById('cierre-line-zelle').textContent = `$${fmt(t.zelleUsd, 2)}`;
     document.getElementById('cierre-line-pendiente').textContent = `$${fmt(t.pendUsd, 2)}`;
@@ -391,7 +896,7 @@
           <strong>Total: $${fmt(c.totalUsd, 2)}</strong>
         </div>
         <div style="font-size:13px; color:var(--muted);">
-          Cajero: ${esc(c.cashier)} • Punto: ${fmt(c.puntoBs, 0)} Bs • Pago Móvil: ${fmt(c.pmBs, 0)} Bs • Divisas: $${fmt(c.divUsd, 2)}
+          Cajero: ${esc(c.cashier)} • Punto: ${fmt(c.puntoBs, 2)} Bs • Pago Móvil: ${fmt(c.pmBs, 2)} Bs • Divisas: $${fmt(c.divUsd, 2)}
         </div>
         ${c.nota ? `<div style="font-size:12.5px; margin-top:4px; color:var(--gold);">Nota: ${esc(c.nota)}</div>` : ''}
       </div>
@@ -401,11 +906,13 @@
   }
 
   // ==========================================================================
-  // 4. CLIENTES (DEUDAS Y ABONOS)
+  // 4. CLIENTES (DEUDAS DETALLADAS Y ABONOS)
   // ==========================================================================
   function renderClientsView() {
     let sumDeuda = 0;
     let sumFavor = 0;
+    const rate = parseFloat(state.exchangeRate) || 1000;
+
     state.clients.forEach(c => {
       sumDeuda += Number(c.deuda) || 0;
       sumFavor += Number(c.aFavor) || 0;
@@ -427,37 +934,117 @@
 
     const tbody = document.getElementById('clients-tbody');
     tbody.innerHTML = list
-      .map(
-        c => `
+      .map(c => {
+        const deudaUsd = round2(Number(c.deuda) || 0);
+        const deudaBs = round2(deudaUsd * rate);
+        const itemsText =
+          deudaUsd > 0 && Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
+            ? c.itemsPendientes.map(it => `${it.qty || 1}x ${it.product} ($${fmt(it.totalUsd, 2)})`).join(' • ')
+            : deudaUsd > 0
+            ? 'Saldo pendiente en cuenta'
+            : 'Al día (Sin deuda)';
+
+        return `
       <tr>
         <td style="text-align:left;"><strong>${esc(c.name)}</strong></td>
-        <td>${c.deuda > 0 ? `<strong class="text-yellow">$${fmt(c.deuda, 2)}</strong>` : '$0.00'}</td>
-        <td>${c.aFavor > 0 ? `<strong class="text-green">$${fmt(c.aFavor, 2)}</strong>` : '$0.00'}</td>
-        <td>${c.deuda > 0 ? '<span class="text-yellow">PENDIENTE</span>' : c.aFavor > 0 ? '<span class="text-green">A FAVOR</span>' : 'AL DÍA'}</td>
+        <td>${deudaUsd > 0 ? `<strong class="text-yellow">$${fmt(deudaUsd, 2)}</strong>` : '$0,00'}</td>
+        <td>${deudaUsd > 0 ? `<strong>${fmt(deudaBs, 2)} Bs</strong>` : '0,00 Bs'}</td>
+        <td style="text-align:left; max-width:340px; overflow:hidden; text-overflow:ellipsis;" title="${esc(itemsText)}">
+          <span style="font-size:12.5px; color:${deudaUsd > 0 ? '#FFF' : 'var(--muted)'};">${esc(itemsText)}</span>
+        </td>
+        <td>${c.aFavor > 0 ? `<strong class="text-green">$${fmt(c.aFavor, 2)}</strong>` : '$0,00'}</td>
         <td>
-          <button type="button" class="btn-gold btn-abonar" data-id="${c.id}" style="padding:6px 12px; font-size:12.5px;">
-            Abonar / Pagar
-          </button>
+          <div style="display:flex; gap:6px; justify-content:center;">
+            <button type="button" class="btn-gold btn-abonar" data-id="${c.id}" style="padding:6px 11px; font-size:12px;">
+              <i class="fa-solid fa-hand-holding-dollar"></i> Ver Detalle / Cobrar
+            </button>
+            ${
+              deudaUsd > 0
+                ? `<button type="button" class="mini-btn btn-go-caja-debt" data-id="${c.id}" title="Abrir en Caja Diaria">
+                     <i class="fa-solid fa-cash-register"></i> En Caja
+                   </button>`
+                : ''
+            }
+          </div>
         </td>
       </tr>
-    `
-      )
+    `;
+      })
       .join('');
 
     tbody.querySelectorAll('.btn-abonar').forEach(btn => {
       btn.addEventListener('click', () => {
-        const c = state.clients.find(x => x.id === btn.getAttribute('data-id'));
-        if (!c) return;
-        document.getElementById('abono-cli-id').value = c.id;
-        document.getElementById('abono-modal-title').textContent = `Abonar a: ${c.name}`;
-        document.getElementById('abono-monto').value = c.deuda > 0 ? c.deuda : '';
-        document.getElementById('abono-modal').classList.remove('hidden');
+        openAbonoModal(btn.getAttribute('data-id'));
+      });
+    });
+
+    tbody.querySelectorAll('.btn-go-caja-debt').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const cid = btn.getAttribute('data-id');
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.querySelector('.nav-btn[data-tab="caja"]')?.classList.add('active');
+        document.getElementById('tab-caja')?.classList.add('active');
+        renderCajaDebtSection(cid);
+        document.getElementById('caja-cobrar-deuda-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
     });
   }
 
+  function openAbonoModal(clientId) {
+    const c = state.clients.find(x => x.id === clientId);
+    if (!c) return;
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    const deudaUsd = round2(Number(c.deuda) || 0);
+
+    document.getElementById('abono-cli-id').value = c.id;
+    document.getElementById('abono-modal-title').textContent = `Detalle de Cuenta y Cobro: ${c.name}`;
+    document.getElementById('abono-monto').value = deudaUsd > 0 ? deudaUsd.toFixed(2) : '';
+    document.getElementById('abono-monto-bs').value = `${fmt(round2(deudaUsd * rate), 2)} Bs`;
+
+    const itemsBox = document.getElementById('abono-modal-items-box');
+    if (deudaUsd > 0 && Array.isArray(c.itemsPendientes) && c.itemsPendientes.length) {
+      itemsBox.innerHTML = `
+        <div class="table-wrap" style="max-height:180px; overflow-y:auto; margin-bottom:8px;">
+          <table class="sheet-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">PRODUCTO / CONCEPTO QUE DEBE</th>
+                <th>CANT</th>
+                <th>TOTAL ($)</th>
+                <th>EN BS</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${c.itemsPendientes
+                .map(
+                  it => `
+                <tr>
+                  <td style="text-align:left;"><strong>${esc(it.product)}</strong> <small style="color:var(--muted);">(${esc(it.date || '')})</small></td>
+                  <td>${it.qty ?? 1}</td>
+                  <td class="text-yellow"><strong>$${fmt(it.totalUsd, 2)}</strong></td>
+                  <td>${fmt(round2((Number(it.totalUsd) || 0) * rate), 2)} Bs</td>
+                </tr>
+              `
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex; justify-content:space-between; background:rgba(255,230,0,0.12); padding:8px 12px; border-radius:8px; border:1px solid var(--yellow-row);">
+          <span>Deuda Total: <strong class="text-yellow">$${fmt(deudaUsd, 2)}</strong></span>
+          <span>Exacto en Bs: <strong class="text-gold">${fmt(round2(deudaUsd * rate), 2)} Bs</strong></span>
+        </div>
+      `;
+    } else {
+      itemsBox.innerHTML = `<p class="hint">Este cliente no tiene productos pendientes por pagar actualmente.</p>`;
+    }
+
+    document.getElementById('abono-modal').classList.remove('hidden');
+  }
+
   // ==========================================================================
-  // 5. INVENTARIO Y PRECIOS (CON EDICIÓN DIRECTA DE STOCK Y PRECIO EN TABLA)
+  // 5. INVENTARIO Y PRECIOS (EDICIÓN DIRECTA DE STOCK Y PRECIO)
   // ==========================================================================
   function renderInventoryView() {
     const search = (document.getElementById('search-inv').value || '').toLowerCase();
@@ -488,7 +1075,7 @@
         <td>
           <input type="number" step="0.01" min="0" class="inline-price-input" data-id="${p.id}" value="${Number(p.price).toFixed(2)}" title="Cambia el precio y presiona Enter o clic afuera">
         </td>
-        <td id="bs-cell-${p.id}"><strong>${fmt(p.price * rate, 2)} Bs</strong></td>
+        <td id="bs-cell-${p.id}"><strong>${fmt(round2(p.price * rate), 2)} Bs</strong></td>
         <td>
           <div class="inline-stock-wrap">
             <button type="button" class="stock-step-btn btn-stk-minus" data-id="${p.id}" title="Restar 1 al Stock">-</button>
@@ -522,7 +1109,6 @@
     document.getElementById('prev-p')?.addEventListener('click', () => { if (invPage > 1) { invPage--; renderInventoryView(); } });
     document.getElementById('next-p')?.addEventListener('click', () => { if (invPage < totalPages) { invPage++; renderInventoryView(); } });
 
-    // Edición directa de PRECIO ($) en la fila
     tbody.querySelectorAll('.inline-price-input').forEach(inp => {
       inp.addEventListener('change', () => {
         const id = inp.getAttribute('data-id');
@@ -533,17 +1119,16 @@
           inp.value = p.price.toFixed(2);
           const bsCell = document.getElementById(`bs-cell-${p.id}`);
           const currentRate = parseFloat(state.exchangeRate) || 1;
-          if (bsCell) bsCell.innerHTML = `<strong>${fmt(p.price * currentRate, 2)} Bs</strong>`;
+          if (bsCell) bsCell.innerHTML = `<strong>${fmt(round2(p.price * currentRate), 2)} Bs</strong>`;
           saveState();
           renderQuickButtons();
           renderDatalists();
           renderReportsView();
-          toast(`Precio de ${p.name}: $${p.price.toFixed(2)}`);
+          toast(`Precio de ${p.name}: $${fmt(p.price, 2)}`);
         }
       });
     });
 
-    // Edición directa de STOCK (escribiendo el número)
     tbody.querySelectorAll('.inline-stock-input').forEach(inp => {
       inp.addEventListener('change', () => {
         const id = inp.getAttribute('data-id');
@@ -552,6 +1137,7 @@
         if (p && !isNaN(val)) {
           p.stock = round2(val);
           saveState();
+          renderQuickButtons();
           renderDatalists();
           renderReportsView();
           toast(`Stock de ${p.name} actualizado a ${p.stock}`);
@@ -559,7 +1145,6 @@
       });
     });
 
-    // Botones - y + de Stock directo en la fila
     tbody.querySelectorAll('.btn-stk-minus').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-id');
@@ -568,6 +1153,7 @@
           p.stock = Math.max(0, round2((Number(p.stock) || 0) - 1));
           saveState();
           renderInventoryView();
+          renderQuickButtons();
           renderDatalists();
           renderReportsView();
           toast(`Stock ${p.name}: ${p.stock}`);
@@ -583,6 +1169,7 @@
           p.stock = round2((Number(p.stock) || 0) + 1);
           saveState();
           renderInventoryView();
+          renderQuickButtons();
           renderDatalists();
           renderReportsView();
           toast(`Stock ${p.name}: ${p.stock}`);
@@ -590,7 +1177,6 @@
       });
     });
 
-    // Estrella de Caja Rápida
     tbody.querySelectorAll('.btn-star').forEach(b => {
       b.addEventListener('click', () => {
         const p = state.products.find(x => x.id === b.getAttribute('data-id'));
@@ -603,7 +1189,6 @@
       });
     });
 
-    // Abrir Modal Completo de Editar Producto
     tbody.querySelectorAll('.btn-open-prod-modal').forEach(b => {
       b.addEventListener('click', () => {
         const p = state.products.find(x => x.id === b.getAttribute('data-id'));
@@ -628,7 +1213,6 @@
     const t = getTotals();
     const rate = parseFloat(state.exchangeRate) || 1000;
 
-    // 1. Calcular ganancia estimada de hoy
     let estimatedProfit = 0;
     const productSalesMap = {};
 
@@ -646,7 +1230,6 @@
       productSalesMap[key].usd += rev;
     });
 
-    // 2. Calcular totales de clientes e inventario
     let sumDeuda = 0;
     let sumFavor = 0;
     state.clients.forEach(c => {
@@ -674,20 +1257,19 @@
     const profitPct = t.usd > 0 ? Math.round((estimatedProfit / t.usd) * 100) : 0;
 
     document.getElementById('rep-kpi-ventas-usd').textContent = `$${fmt(t.usd, 2)}`;
-    document.getElementById('rep-kpi-ventas-bs').textContent = `Equivalente: ${fmt(t.usd * rate, 0)} Bs`;
+    document.getElementById('rep-kpi-ventas-bs').textContent = `Equivalente: ${fmt(round2(t.usd * rate), 2)} Bs`;
     document.getElementById('rep-kpi-profit-usd').textContent = `$${fmt(estimatedProfit, 2)}`;
     document.getElementById('rep-kpi-profit-pct').textContent = `Margen prom: ~${profitPct}% sobre ventas`;
     document.getElementById('rep-kpi-deuda-usd').textContent = `$${fmt(sumDeuda, 2)}`;
     document.getElementById('rep-kpi-favor-usd').textContent = `Saldo a favor clientes: $${fmt(sumFavor, 2)}`;
     document.getElementById('rep-kpi-inv-venta').textContent = `$${fmt(invVentaTotal, 2)}`;
 
-    // 3. Gráfico: Recaudación por Método de Pago
     const payMethodsData = [
-      { label: 'Punto de Venta (Bs)', usdEq: t.puntoBs / rate, rawText: `${fmt(t.puntoBs, 0)} Bs ($${fmt(t.puntoBs / rate, 2)})`, color: '' },
+      { label: 'Punto de Venta (Bs)', usdEq: t.puntoBs / rate, rawText: `${fmt(t.puntoBs, 2)} Bs ($${fmt(t.puntoBs / rate, 2)})`, color: '' },
       { label: 'Divisas en Efectivo ($)', usdEq: t.divUsd, rawText: `$${fmt(t.divUsd, 2)}`, color: 'green' },
-      { label: 'Pago Móvil (Bs)', usdEq: t.pmBs / rate, rawText: `${fmt(t.pmBs, 0)} Bs ($${fmt(t.pmBs / rate, 2)})`, color: '' },
+      { label: 'Pago Móvil (Bs)', usdEq: t.pmBs / rate, rawText: `${fmt(t.pmBs, 2)} Bs ($${fmt(t.pmBs / rate, 2)})`, color: '' },
       { label: 'Zelle ($)', usdEq: t.zelleUsd, rawText: `$${fmt(t.zelleUsd, 2)}`, color: 'green' },
-      { label: 'Efectivo Bolívares (Bs)', usdEq: t.efBs / rate, rawText: `${fmt(t.efBs, 0)} Bs ($${fmt(t.efBs / rate, 2)})`, color: '' },
+      { label: 'Efectivo Bolívares (Bs)', usdEq: t.efBs / rate, rawText: `${fmt(t.efBs, 2)} Bs ($${fmt(t.efBs / rate, 2)})`, color: '' },
       { label: 'Fiado / Pendiente Hoy ($)', usdEq: t.pendUsd, rawText: `$${fmt(t.pendUsd, 2)}`, color: 'yellow' }
     ];
     const maxPayUsd = Math.max(1, ...payMethodsData.map(x => x.usdEq));
@@ -709,7 +1291,6 @@
       })
       .join('');
 
-    // 4. Gráfico: Top 8 Productos Más Vendidos
     const topProducts = Object.values(productSalesMap)
       .sort((a, b) => b.usd - a.usd)
       .slice(0, 8);
@@ -734,11 +1315,10 @@
           .join('')
       : `<p class="hint">Registra ventas en Caja Diaria para ver el ranking de productos.</p>`;
 
-    // 5. Gráfico: Valoración de Inventario por Departamento
     const deptsArr = [
-      { name: 'Productos Importados', info: deptTotals['IMPORTADO'], costInv: 11947.15 },
-      { name: 'Productos Nacionales', info: deptTotals['NACIONAL'], costInv: 3781.71 },
-      { name: 'Cerveza Nacional y Tobos', info: deptTotals['CERVEZA NACIONAL'], costInv: 880.75 }
+      { name: 'Productos Importados', info: deptTotals['IMPORTADO'] },
+      { name: 'Productos Nacionales', info: deptTotals['NACIONAL'] },
+      { name: 'Cerveza Nacional y Tobos', info: deptTotals['CERVEZA NACIONAL'] }
     ];
     const maxDeptVal = Math.max(1, ...deptsArr.map(d => d.info.saleValue));
 
@@ -759,7 +1339,6 @@
       })
       .join('');
 
-    // 6. Gráfico: Top 8 Clientes con Mayor Saldo Pendiente
     const topDebtors = [...state.clients]
       .filter(c => (c.deuda || 0) > 0)
       .sort((a, b) => b.deuda - a.deuda)
@@ -773,7 +1352,7 @@
         <div class="vbar-item">
           <div class="vbar-top">
             <strong>${esc(c.name)}</strong>
-            <span class="text-yellow">$${fmt(c.deuda, 2)}</span>
+            <span class="text-yellow">$${fmt(c.deuda, 2)} (${fmt(round2(c.deuda * rate), 2)} Bs)</span>
           </div>
           <div class="vbar-track">
             <div class="vbar-fill yellow" style="width: ${pct}%;"></div>
@@ -787,7 +1366,7 @@
   // ==========================================================================
   // 7. GENERADOR DE REPORTES IMPRIMIBLES / PDF CON MEMBRETE OFICIAL ATO'Z
   // ==========================================================================
-  function openPrintableReport(type) {
+  function openPrintableReport(type, optionalClient = null) {
     const t = getTotals();
     const rate = parseFloat(state.exchangeRate) || 1000;
     const nowStr = new Date().toLocaleString('es-VE');
@@ -797,16 +1376,71 @@
     let summaryBoxesHtml = '';
     let tableHtml = '';
 
-    if (type === 'SALES') {
+    if (type === 'CLIENT_TICKET' && optionalClient) {
+      const c = optionalClient;
+      const deudaUsd = round2(Number(c.deuda) || 0);
+      const deudaBs = round2(deudaUsd * rate);
+      reportTitle = `ESTADO DE CUENTA DETALLADO — CLIENTE: ${c.name}`;
+      summaryBoxesHtml = `
+        <div class="kpi-row">
+          <div class="kpi"><span>CLIENTE</span><strong>${esc(c.name)}</strong></div>
+          <div class="kpi"><span>DEUDA TOTAL EN DÓLARES</span><strong>$${fmt(deudaUsd, 2)}</strong></div>
+          <div class="kpi"><span>TASA BCV APLICADA</span><strong>${fmt(rate, 2)} Bs/$</strong></div>
+          <div class="kpi"><span>TOTAL EXACTO EN BOLÍVARES</span><strong>${fmt(deudaBs, 2)} Bs</strong></div>
+        </div>
+      `;
+      const items = Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
+        ? c.itemsPendientes
+        : [{ date: 'Cuenta Acumulada', product: 'SALDO PENDIENTE EN BODEGÓN', qty: 1, price: deudaUsd, totalUsd: deudaUsd }];
+      tableHtml = `
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th style="text-align:left;">FECHA / ORIGEN</th>
+              <th style="text-align:left;">PRODUCTO / CONCEPTO QUE DEBE</th>
+              <th>CANT</th>
+              <th>PRECIO UNIT ($)</th>
+              <th>SUBTOTAL ($)</th>
+              <th>SUBTOTAL EXACTO (Bs)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(
+                (it, i) => `
+              <tr>
+                <td>${i + 1}</td>
+                <td style="text-align:left;">${esc(it.date || '')}</td>
+                <td style="text-align:left;"><strong>${esc(it.product)}</strong></td>
+                <td>${it.qty ?? 1}</td>
+                <td>$${fmt(it.price, 2)}</td>
+                <td><strong>$${fmt(it.totalUsd, 2)}</strong></td>
+                <td><strong>${fmt(round2((Number(it.totalUsd) || 0) * rate), 2)} Bs</strong></td>
+              </tr>
+            `
+              )
+              .join('')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5" style="text-align:left;">TOTAL PENDIENTE A PAGAR POR ${esc(c.name)}</td>
+              <td>$${fmt(deudaUsd, 2)}</td>
+              <td>${fmt(deudaBs, 2)} Bs</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
+    } else if (type === 'SALES') {
       reportTitle = 'REPORTE DE CIERRE DE CAJA Y CONSUMO DIARIO';
       summaryBoxesHtml = `
         <div class="kpi-row">
           <div class="kpi"><span>TOTAL VENTAS ($)</span><strong>$${fmt(t.usd, 2)}</strong></div>
-          <div class="kpi"><span>PUNTO DE VENTA (Bs)</span><strong>${fmt(t.puntoBs, 0)} Bs</strong></div>
-          <div class="kpi"><span>PAGO MÓVIL (Bs)</span><strong>${fmt(t.pmBs, 0)} Bs</strong></div>
+          <div class="kpi"><span>PUNTO DE VENTA (Bs)</span><strong>${fmt(t.puntoBs, 2)} Bs</strong></div>
+          <div class="kpi"><span>PAGO MÓVIL (Bs)</span><strong>${fmt(t.pmBs, 2)} Bs</strong></div>
           <div class="kpi"><span>DIVISAS ($)</span><strong>$${fmt(t.divUsd, 2)}</strong></div>
-          <div class="kpi"><span>EFECTIVO BS / ZELLE</span><strong>${fmt(t.efBs, 0)} Bs / $${fmt(t.zelleUsd, 2)}</strong></div>
-          <div class="kpi"><span>FIADO / PENDIENTE ($)</span><strong>$${fmt(t.pendUsd, 2)}</strong></div>
+          <div class="kpi"><span>EFECTIVO BS / ZELLE</span><strong>${fmt(t.efBs, 2)} Bs / $${fmt(t.zelleUsd, 2)}</strong></div>
+          <div class="kpi"><span>FIADO / ABONOS HOY</span><strong>$${fmt(t.pendUsd, 2)} / $${fmt(t.abonUsd, 2)}</strong></div>
         </div>
       `;
       tableHtml = `
@@ -825,6 +1459,7 @@
               <th>ZELLE $</th>
               <th style="text-align:left;">CLIENTE</th>
               <th>PENDIENTE $</th>
+              <th>ABONADO $</th>
             </tr>
           </thead>
           <tbody>
@@ -837,13 +1472,14 @@
                 <td>${s.qty ?? ''}</td>
                 <td>$${fmt(s.price, 2)}</td>
                 <td><strong>$${fmt(s.totalUsd, 2)}</strong></td>
-                <td>${s.pagoMovilBs > 0 ? fmt(s.pagoMovilBs, 0) : ''}</td>
+                <td>${s.pagoMovilBs > 0 ? fmt(s.pagoMovilBs, 2) : ''}</td>
                 <td>${s.divisasUsd > 0 ? '$' + fmt(s.divisasUsd, 2) : ''}</td>
-                <td>${s.efectivoBs > 0 ? fmt(s.efectivoBs, 0) : ''}</td>
-                <td>${s.puntoBs > 0 ? fmt(s.puntoBs, 0) : ''}</td>
+                <td>${s.efectivoBs > 0 ? fmt(s.efectivoBs, 2) : ''}</td>
+                <td>${s.puntoBs > 0 ? fmt(s.puntoBs, 2) : ''}</td>
                 <td>${s.zelleUsd > 0 ? '$' + fmt(s.zelleUsd, 2) : ''}</td>
                 <td style="text-align:left;">${esc(s.client || '')}</td>
                 <td>${s.pendienteUsd > 0 ? '$' + fmt(s.pendienteUsd, 2) : ''}</td>
+                <td>${s.abonadoUsd > 0 ? '$' + fmt(s.abonadoUsd, 2) : ''}</td>
               </tr>
             `
               )
@@ -853,19 +1489,20 @@
             <tr>
               <td colspan="4" style="text-align:left;">TOTALES GENERALES DEL TURNO</td>
               <td>$${fmt(t.usd, 2)}</td>
-              <td>${fmt(t.pmBs, 0)} Bs</td>
+              <td>${fmt(t.pmBs, 2)} Bs</td>
               <td>$${fmt(t.divUsd, 2)}</td>
-              <td>${fmt(t.efBs, 0)} Bs</td>
-              <td>${fmt(t.puntoBs, 0)} Bs</td>
+              <td>${fmt(t.efBs, 2)} Bs</td>
+              <td>${fmt(t.puntoBs, 2)} Bs</td>
               <td>$${fmt(t.zelleUsd, 2)}</td>
               <td></td>
               <td>$${fmt(t.pendUsd, 2)}</td>
+              <td>$${fmt(t.abonUsd, 2)}</td>
             </tr>
           </tfoot>
         </table>
       `;
     } else if (type === 'CLIENTS') {
-      reportTitle = 'ESTADO DE CUENTAS POR COBRAR Y SALDOS A FAVOR';
+      reportTitle = 'ESTADO DE CUENTAS POR COBRAR (CON DETALLE) Y SALDOS A FAVOR';
       let sumDeuda = 0;
       let sumFavor = 0;
       const activeClients = state.clients.filter(c => (c.deuda || 0) > 0 || (c.aFavor || 0) > 0);
@@ -876,7 +1513,7 @@
       summaryBoxesHtml = `
         <div class="kpi-row">
           <div class="kpi"><span>TOTAL CUENTAS POR COBRAR ($)</span><strong>$${fmt(sumDeuda, 2)}</strong></div>
-          <div class="kpi"><span>EQUIVALENTE EN BOLÍVARES</span><strong>${fmt(sumDeuda * rate, 0)} Bs</strong></div>
+          <div class="kpi"><span>EQUIVALENTE EXACTO EN BS</span><strong>${fmt(round2(sumDeuda * rate), 2)} Bs</strong></div>
           <div class="kpi"><span>TOTAL SALDOS A FAVOR ($)</span><strong>$${fmt(sumFavor, 2)}</strong></div>
           <div class="kpi"><span>CLIENTES CON SALDO ACTIVO</span><strong>${activeClients.length} Clientes</strong></div>
         </div>
@@ -889,24 +1526,30 @@
               <th style="text-align:left;">NOMBRE DEL CLIENTE</th>
               <th>DEUDA PENDIENTE ($)</th>
               <th>EQUIVALENTE (Bs)</th>
+              <th style="text-align:left;">DETALLE DE PRODUCTOS / CONSUMO QUE DEBE</th>
               <th>SALDO A FAVOR ($)</th>
-              <th>ESTADO / OBSERVACIÓN</th>
             </tr>
           </thead>
           <tbody>
             ${activeClients
-              .map(
-                (c, i) => `
+              .map((c, i) => {
+                const det =
+                  c.deuda > 0 && Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
+                    ? c.itemsPendientes.map(it => `${it.qty || 1}x ${it.product} ($${fmt(it.totalUsd, 2)})`).join(', ')
+                    : c.deuda > 0
+                    ? 'Saldo pendiente acumulado'
+                    : 'Saldo a favor';
+                return `
               <tr>
                 <td>${i + 1}</td>
                 <td style="text-align:left;"><strong>${esc(c.name)}</strong></td>
                 <td>${c.deuda > 0 ? '$' + fmt(c.deuda, 2) : '—'}</td>
-                <td>${c.deuda > 0 ? fmt(c.deuda * rate, 0) + ' Bs' : '—'}</td>
+                <td>${c.deuda > 0 ? fmt(round2(c.deuda * rate), 2) + ' Bs' : '—'}</td>
+                <td style="text-align:left;">${esc(det)}</td>
                 <td>${c.aFavor > 0 ? '$' + fmt(c.aFavor, 2) : '—'}</td>
-                <td>${c.deuda > 0 ? 'PENDIENTE POR COBRAR' : 'SALDO A FAVOR'}</td>
               </tr>
-            `
-              )
+            `;
+              })
               .join('')}
           </tbody>
         </table>
@@ -924,7 +1567,7 @@
         <div class="kpi-row">
           <div class="kpi"><span>TOTAL PRODUCTOS REGISTRADOS</span><strong>${state.products.length} Referencias</strong></div>
           <div class="kpi"><span>TOTAL UNIDADES EN STOCK</span><strong>${fmt(totalUnits, 0)} Unidades</strong></div>
-          <div class="kpi"><span>COSTO INVERSIÓN INICIAL</span><strong>$16,609.61</strong></div>
+          <div class="kpi"><span>COSTO INVERSIÓN INICIAL</span><strong>$16.609,61</strong></div>
           <div class="kpi"><span>VALOR TOTAL A PRECIO VENTA</span><strong>$${fmt(totalSaleVal, 2)}</strong></div>
         </div>
       `;
@@ -952,7 +1595,7 @@
                 <td>${esc(p.category)}</td>
                 <td><strong>${p.stock ?? 0}</strong></td>
                 <td>$${fmt(p.price, 2)}</td>
-                <td>${fmt((p.price || 0) * rate, 0)} Bs</td>
+                <td>${fmt(round2((p.price || 0) * rate), 2)} Bs</td>
                 <td>$${fmt((p.stock || 0) * (p.price || 0), 2)}</td>
               </tr>
             `
@@ -1016,7 +1659,7 @@
           <div class="meta">
             <div><strong>Fecha y Hora:</strong> ${nowStr}</div>
             <div><strong>Emitido por:</strong> ${esc(cashierName)}</div>
-            <div><strong>Tasa de Cambio:</strong> ${fmt(rate, 2)} Bs/$</div>
+            <div><strong>Tasa Oficial BCV:</strong> ${fmt(rate, 2)} Bs/$</div>
           </div>
         </div>
         <div class="doc-title">${reportTitle}</div>
@@ -1024,7 +1667,7 @@
         ${tableHtml}
         <div class="signatures">
           <div class="sig-line">Firma Cajero / Responsable (${esc(cashierName)})</div>
-          <div class="sig-line">Recibido Conforme (Administración Ato'z)</div>
+          <div class="sig-line">Recibido Conforme (Bodegón Ato'z)</div>
         </div>
       </body>
       </html>
@@ -1102,19 +1745,29 @@
         document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         btn.classList.add('active');
-        document.getElementById(`tab-${tab}`).classList.add('active');
+        document.getElementById(`tab-${tab}`)?.classList.add('active');
         if (tab === 'cierre') renderCierreView();
         if (tab === 'reportes') renderReportsView();
       });
+    });
+
+    // Clic en badge de nube lleva a la pestaña 6 (Base de Datos / Windows .EXE)
+    document.getElementById('cloud-status-badge')?.addEventListener('click', () => {
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelector('.nav-btn[data-tab="sistema"]')?.classList.add('active');
+      document.getElementById('tab-sistema')?.classList.add('active');
     });
 
     // Tasa Oficial BCV Automática + Edición Manual opcional
     document.getElementById('global-rate-input').addEventListener('input', e => {
       const r = parseFloat(e.target.value);
       if (r > 0) {
-        state.exchangeRate = r;
+        state.exchangeRate = round2(r);
         saveState();
         updateLiveTotal();
+        renderCajaDebtSection();
+        renderClientsView();
         renderInventoryView();
         renderReportsView();
       }
@@ -1162,7 +1815,7 @@
       });
     });
 
-    // Registrar Venta en 1 Clic (Y descontar del Stock)
+    // Registrar Venta en 1 Clic (Y descontar del Stock + Guardar detalle si es Fiado)
     document.getElementById('sale-form').addEventListener('submit', e => {
       e.preventDefault();
       const product = document.getElementById('entry-product').value.trim().toUpperCase();
@@ -1171,11 +1824,24 @@
       const totalUsd = round2(qty * price);
       const rate = parseFloat(state.exchangeRate) || 1000;
       const totalBs = round2(totalUsd * rate);
-      const client = document.getElementById('entry-client').value.trim().toUpperCase();
+      let client = document.getElementById('entry-client').value.trim().toUpperCase();
       const highlight = document.getElementById('entry-highlight').checked || state.payMethod === 'pendiente';
 
+      if (state.payMethod === 'pendiente' && !client) {
+        const asked = prompt('Esta venta es FIADA / PENDIENTE. Escribe el nombre del cliente para anotar lo que debe:');
+        if (!asked || !asked.trim()) {
+          toast('Debes indicar el nombre del cliente para registrar un fiado');
+          return;
+        }
+        client = asked.trim().toUpperCase();
+      }
+
+      const nowTime = new Date().toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' });
+      const saleId = `s-${Date.now()}`;
+
       const sale = {
-        id: `s-${Date.now()}`,
+        id: saleId,
+        hora: nowTime,
         product,
         qty,
         price,
@@ -1202,14 +1868,23 @@
         remainingText = ` • Quedan ${invItem.stock} en Stock`;
       }
 
-      // Si es fiado/pendiente y puso cliente, sumarlo a su deuda
+      // Si es fiado/pendiente, sumarlo a la deuda del cliente y guardar el producto detallado
       if (state.payMethod === 'pendiente' && client) {
         let c = state.clients.find(x => x.name.toUpperCase() === client);
         if (!c) {
-          c = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE' };
+          c = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE', itemsPendientes: [] };
           state.clients.unshift(c);
         }
-        c.deuda = round2((c.deuda || 0) + totalUsd);
+        if (!Array.isArray(c.itemsPendientes)) c.itemsPendientes = [];
+        c.deuda = round2((Number(c.deuda) || 0) + totalUsd);
+        c.itemsPendientes.push({
+          id: `it-${saleId}`,
+          date: nowTime,
+          product,
+          qty,
+          price,
+          totalUsd
+        });
       }
 
       saveState();
@@ -1220,15 +1895,51 @@
       updateLiveTotal();
       renderQuickButtons();
       renderDatalists();
+      renderCajaDebtSection();
       renderSalesTable();
       renderClientsView();
       renderInventoryView();
       renderReportsView();
-      toast(`Registrado: ${qty}x ${product} ($${totalUsd.toFixed(2)})${remainingText}`);
+      toast(`Registrado: ${qty}x ${product} ($${fmt(totalUsd, 2)} / ${fmt(totalBs, 2)} Bs)${remainingText}`);
     });
 
-    // Buscar y exportar en Hoja Diaria
+    // Eventos de la Sección en Caja: Cobrar a Cliente con Deuda Detallada
+    document.getElementById('caja-debt-client-select')?.addEventListener('change', e => {
+      renderSelectedCajaDebtClient(e.target.value);
+    });
+
+    document.getElementById('caja-debt-pay-usd')?.addEventListener('input', updateCajaDebtLiveBs);
+
+    document.getElementById('btn-debt-pay-full')?.addEventListener('click', () => {
+      const cid = document.getElementById('caja-debt-client-select').value;
+      const c = state.clients.find(x => x.id === cid);
+      if (c) {
+        document.getElementById('caja-debt-pay-usd').value = round2(c.deuda).toFixed(2);
+        updateCajaDebtLiveBs();
+      }
+    });
+
+    document.getElementById('btn-print-client-ticket')?.addEventListener('click', () => {
+      const cid = document.getElementById('caja-debt-client-select').value;
+      const c = state.clients.find(x => x.id === cid);
+      if (c) openPrintableReport('CLIENT_TICKET', c);
+    });
+
+    document.getElementById('caja-cobrar-deuda-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const cid = document.getElementById('caja-debt-client-select').value;
+      const monto = parseFloat(document.getElementById('caja-debt-pay-usd').value) || 0;
+      const metodo = document.getElementById('caja-debt-pay-method').value;
+      if (!cid || monto <= 0) return;
+      processClientDebtPayment(cid, monto, metodo);
+    });
+
+    // Buscar y sincronizar en Hoja Diaria
     document.getElementById('search-sales').addEventListener('input', renderSalesTable);
+    document.getElementById('sync-cloud-sales-btn')?.addEventListener('click', () => {
+      pushToSupabaseCloud(true);
+      pullFromSupabaseCloud(true);
+    });
 
     document.getElementById('clear-day-btn').addEventListener('click', () => {
       if (confirm('¿Seguro que deseas limpiar la hoja para empezar un nuevo turno en cero?')) {
@@ -1290,13 +2001,32 @@
     document.getElementById('new-client-btn').addEventListener('click', () => {
       const name = prompt('Nombre del nuevo cliente:');
       if (!name) return;
-      const deuda = parseFloat(prompt('¿Tiene deuda inicial en $? (Pon 0 si no debe):', '0')) || 0;
-      state.clients.unshift({ id: `c-${Date.now()}`, name: name.trim().toUpperCase(), deuda, aFavor: 0, note: '' });
+      const deuda = round2(parseFloat(prompt('¿Tiene deuda inicial en $? (Pon 0 si no debe):', '0')) || 0);
+      const concepto = deuda > 0 ? prompt('¿Qué productos o concepto debe? (Ej: 2 Tobos Polar, 1 Whisky):', 'CONSUMO PENDIENTE') : '';
+      const newCli = {
+        id: `c-${Date.now()}`,
+        name: name.trim().toUpperCase(),
+        deuda,
+        aFavor: 0,
+        note: concepto || '',
+        itemsPendientes: deuda > 0
+          ? [{ id: `it-${Date.now()}`, date: new Date().toLocaleDateString('es-VE'), product: (concepto || 'SALDO INICIAL').toUpperCase(), qty: 1, price: deuda, totalUsd: deuda }]
+          : []
+      };
+      state.clients.unshift(newCli);
       saveState();
       renderClientsView();
+      renderCajaDebtSection();
       renderDatalists();
       renderReportsView();
       toast('Cliente agregado');
+    });
+
+    document.getElementById('abono-monto')?.addEventListener('input', e => {
+      const val = parseFloat(e.target.value) || 0;
+      const rate = parseFloat(state.exchangeRate) || 1000;
+      const bsInp = document.getElementById('abono-monto-bs');
+      if (bsInp) bsInp.value = `${fmt(round2(val * rate), 2)} Bs`;
     });
 
     document.getElementById('close-abono-btn').addEventListener('click', () => {
@@ -1308,42 +2038,9 @@
       const id = document.getElementById('abono-cli-id').value;
       const monto = parseFloat(document.getElementById('abono-monto').value) || 0;
       const metodo = document.getElementById('abono-metodo').value;
-      const c = state.clients.find(x => x.id === id);
-      if (!c || monto <= 0) return;
-
-      if (c.deuda >= monto) {
-        c.deuda = round2(c.deuda - monto);
-      } else {
-        const sobra = round2(monto - c.deuda);
-        c.deuda = 0;
-        c.aFavor = round2((c.aFavor || 0) + sobra);
-      }
-
-      const bs = round2(monto * (parseFloat(state.exchangeRate) || 1000));
-      state.dailySales.unshift({
-        id: `s-${Date.now()}`,
-        product: `ABONO DE ${c.name}`,
-        qty: 1,
-        price: monto,
-        totalUsd: 0,
-        totalConsumoUsd: 0,
-        pagoMovilBs: metodo === 'pagomovil' ? bs : 0,
-        divisasUsd: metodo === 'divisas' ? monto : 0,
-        efectivoBs: metodo === 'efectivobs' ? bs : 0,
-        puntoBs: metodo === 'punto' ? bs : 0,
-        zelleUsd: metodo === 'zelle' ? monto : 0,
-        client: c.name,
-        pendienteUsd: 0,
-        abonadoUsd: monto,
-        highlight: false
-      });
-
-      saveState();
+      if (!id || monto <= 0) return;
       document.getElementById('abono-modal').classList.add('hidden');
-      renderClientsView();
-      renderSalesTable();
-      renderReportsView();
-      toast(`Abono de $${monto.toFixed(2)} registrado`);
+      processClientDebtPayment(id, monto, metodo);
     });
 
     // Inventario: Filtros y Modal de Crear/Editar Producto Completo
@@ -1408,6 +2105,69 @@
       toast(`Producto ${name} guardado (Stock: ${stock})`);
     });
 
+    // Pestaña 6: Base de Datos Multi-PC y Modo Local Windows .EXE
+    document.getElementById('btn-force-cloud-push')?.addEventListener('click', () => {
+      pushToSupabaseCloud(true);
+    });
+
+    document.getElementById('btn-force-cloud-pull')?.addEventListener('click', () => {
+      pullFromSupabaseCloud(true);
+    });
+
+    document.getElementById('btn-copy-sql')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(SUPABASE_SQL_SCRIPT).then(() => {
+        toast('¡Código SQL copiado! Pégalo en Supabase -> SQL Editor -> RUN');
+      });
+    });
+
+    document.getElementById('btn-export-local-db')?.addEventListener('click', () => {
+      const jsonStr = JSON.stringify(state, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const dateTag = new Date().toISOString().slice(0, 10);
+      a.download = `BaseDeDatos_Bodegon_Atoz_${dateTag}.json`;
+      a.click();
+      toast('Archivo de Base de Datos guardado en tu PC');
+    });
+
+    document.getElementById('inp-import-local-db')?.addEventListener('change', e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const imported = JSON.parse(ev.target.result);
+          if (imported && Array.isArray(imported.products)) {
+            state = Object.assign({}, state, imported, { updatedAt: Date.now() });
+            saveState(true);
+            renderAll();
+            toast('¡Base de datos cargada en el sistema con éxito!');
+          } else {
+            toast('El archivo seleccionado no tiene el formato válido');
+          }
+        } catch (err) {
+          toast('Error al leer el archivo JSON');
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    document.getElementById('btn-install-desktop-pwa')?.addEventListener('click', async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+      } else {
+        alert(
+          'Para instalar Bodegón Ato\'z como programa en tu Escritorio de Windows:\n\n' +
+          '1. En la barra superior derecha de Chrome o Edge, haz clic en el ícono de Computadora con una flecha (Instalar aplicación).\n' +
+          '2. O abre el menú de los 3 puntos (⋮) -> "Guardar y compartir" -> "Instalar Bodegón Ato\'z".\n\n' +
+          '¡El sistema quedará en tu Escritorio y barra de tareas y funcionará 100% sin internet!'
+        );
+      }
+    });
+
     // Cajeros
     document.getElementById('cashier-form').addEventListener('submit', e => {
       e.preventDefault();
@@ -1442,7 +2202,7 @@
     d.className = 'toast';
     d.textContent = msg;
     box.appendChild(d);
-    setTimeout(() => d.remove(), 2600);
+    setTimeout(() => d.remove(), 3000);
   }
 
   document.addEventListener('DOMContentLoaded', init);

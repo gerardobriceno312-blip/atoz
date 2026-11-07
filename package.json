@@ -1,0 +1,47 @@
+{
+  "name": "bodegon-atoz-sistema",
+  "version": "1.0.0",
+  "description": "Sistema Administrativo, Inventario y Control de Caja - Bodegón & Market Ato'z",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist-win": "electron-builder --win portable nsis"
+  },
+  "author": "Bodegón & Market Ato'z (RIF: J-500277490)",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.bodegonatoz.sistema",
+    "productName": "Bodegon Atoz Sistema",
+    "files": [
+      "index.html",
+      "styles.css",
+      "app.js",
+      "data.js",
+      "sw.js",
+      "logo.png",
+      "favicon.png",
+      "manifest.json",
+      "electron-main.js"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "logo.png"
+    },
+    "portable": {
+      "artifactName": "Bodegon_Atoz_Portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "artifactName": "Bodegon_Atoz_Instalador_Setup.exe"
+    }
+  }
+}

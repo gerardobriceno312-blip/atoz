@@ -33,11 +33,25 @@ body {
   line-height: 1.45;
 }
 
-.hidden { display: none !important; }
-.text-gold { color: var(--gold) !important; }
-.text-yellow { color: var(--yellow-row) !important; }
-.text-green { color: var(--green) !important; }
-.text-danger { color: var(--red) !important; }
+.hidden {
+  display: none !important;
+}
+
+.text-gold {
+  color: var(--gold) !important;
+}
+
+.text-yellow {
+  color: var(--yellow-row) !important;
+}
+
+.text-green {
+  color: var(--green) !important;
+}
+
+.text-danger {
+  color: var(--red) !important;
+}
 
 /* ==========================================================================
    LOGIN SIMPLE
@@ -99,7 +113,8 @@ body {
   margin-bottom: 5px;
 }
 
-input, select {
+input,
+select {
   width: 100%;
   background: var(--input-bg);
   border: 1.5px solid var(--gold-border);
@@ -111,7 +126,8 @@ input, select {
   font-weight: 600;
 }
 
-input:focus, select:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--gold);
 }
@@ -236,16 +252,21 @@ input:focus, select:focus {
   transition: all 0.15s ease;
   white-space: nowrap;
 }
+
 .rate-pill strong {
   color: var(--gold);
   font-weight: 900;
 }
-.rate-pill:hover, .rate-pill.active {
+
+.rate-pill:hover,
+.rate-pill.active {
   background: var(--gold);
   color: #160204;
   border-color: #FFF;
 }
-.rate-pill:hover strong, .rate-pill.active strong {
+
+.rate-pill:hover strong,
+.rate-pill.active strong {
   color: #160204;
 }
 
@@ -261,15 +282,22 @@ input:focus, select:focus {
   justify-content: center;
   cursor: pointer;
 }
+
 .rate-sync-btn:hover {
   background: var(--gold);
   color: #000;
 }
 
 @keyframes spin360 {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
+
 .spin {
   animation: spin360 0.8s linear infinite;
 }
@@ -283,11 +311,13 @@ input:focus, select:focus {
   padding: 3px 8px;
   border-radius: 9px;
 }
+
 .tasa-box span {
   font-size: 11px;
   font-weight: 800;
   color: var(--gold);
 }
+
 .tasa-box input {
   width: 80px;
   padding: 3px 5px;
@@ -317,8 +347,13 @@ input:focus, select:focus {
   padding: 18px 20px 50px;
 }
 
-.view { display: none; }
-.view.active { display: block; }
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
+}
 
 .box {
   background: var(--box-bg);
@@ -363,7 +398,10 @@ input:focus, select:focus {
   gap: 7px;
   white-space: nowrap;
 }
-.btn-gold:hover { filter: brightness(1.06); }
+
+.btn-gold:hover {
+  filter: brightness(1.06);
+}
 
 .btn-outline {
   background: transparent;
@@ -377,7 +415,10 @@ input:focus, select:focus {
   align-items: center;
   gap: 6px;
 }
-.btn-outline:hover { background: rgba(255, 242, 170, 0.12); }
+
+.btn-outline:hover {
+  background: rgba(255, 242, 170, 0.12);
+}
 
 .btn-danger-outline {
   background: rgba(239, 68, 68, 0.12);
@@ -428,13 +469,26 @@ input:focus, select:focus {
   gap: 3px;
   transition: transform 0.1s;
 }
+
 .q-btn:hover {
   border-color: var(--gold);
   background: var(--burgundy-light);
 }
-.q-btn:active { transform: scale(0.97); }
-.q-btn strong { font-size: 13px; display: block; }
-.q-btn span { font-size: 14px; font-weight: 900; color: var(--gold); }
+
+.q-btn:active {
+  transform: scale(0.97);
+}
+
+.q-btn strong {
+  font-size: 13px;
+  display: block;
+}
+
+.q-btn span {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--gold);
+}
 
 .simple-sale-form {
   background: rgba(0, 0, 0, 0.28);
@@ -454,6 +508,7 @@ input:focus, select:focus {
 .qty-control {
   display: flex;
 }
+
 .qty-control button {
   width: 40px;
   background: var(--burgundy);
@@ -463,8 +518,15 @@ input:focus, select:focus {
   font-weight: 900;
   cursor: pointer;
 }
-.qty-control button:first-child { border-radius: 10px 0 0 10px; }
-.qty-control button:last-child { border-radius: 0 10px 10px 0; }
+
+.qty-control button:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+.qty-control button:last-child {
+  border-radius: 0 10px 10px 0;
+}
+
 .qty-control input {
   border-radius: 0;
   text-align: center;
@@ -481,11 +543,13 @@ input:focus, select:focus {
   align-items: baseline;
   justify-content: space-between;
 }
+
 .total-display strong {
   font-family: 'Outfit', sans-serif;
   font-size: 22px;
   color: var(--gold);
 }
+
 .total-display small {
   font-size: 13px;
   font-weight: 800;
@@ -495,6 +559,7 @@ input:focus, select:focus {
 .pay-methods-section {
   margin-bottom: 16px;
 }
+
 .section-label {
   display: block;
   font-size: 13px;
@@ -523,7 +588,10 @@ input:focus, select:focus {
   justify-content: center;
   gap: 7px;
 }
-.pay-btn:hover { border-color: var(--gold); }
+
+.pay-btn:hover {
+  border-color: var(--gold);
+}
 
 .pay-btn.active {
   background: var(--gold);
@@ -566,7 +634,11 @@ input:focus, select:focus {
   white-space: nowrap;
   cursor: pointer;
 }
-.yellow-check input { width: 18px; height: 18px; }
+
+.yellow-check input {
+  width: 18px;
+  height: 18px;
+}
 
 .btn-register {
   padding: 13px 28px;
@@ -582,8 +654,14 @@ input:focus, select:focus {
   gap: 10px;
   margin-bottom: 16px;
 }
-.summary-3 { grid-template-columns: repeat(3, 1fr); }
-.summary-4 { grid-template-columns: repeat(4, 1fr); }
+
+.summary-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.summary-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
 
 .sum-card {
   background: var(--box-bg);
@@ -591,12 +669,19 @@ input:focus, select:focus {
   border-radius: 12px;
   padding: 12px 14px;
 }
+
 .sum-card.sum-gold {
   background: var(--burgundy);
   border-color: var(--gold);
 }
-.sum-card.sum-yellow { border-color: var(--yellow-row); }
-.sum-card.sum-green { border-color: var(--green); }
+
+.sum-card.sum-yellow {
+  border-color: var(--yellow-row);
+}
+
+.sum-card.sum-green {
+  border-color: var(--green);
+}
 
 .sum-card span {
   display: block;
@@ -604,13 +689,18 @@ input:focus, select:focus {
   font-weight: 800;
   color: var(--muted);
 }
+
 .sum-card strong {
   font-family: 'Outfit', sans-serif;
   font-size: 21px;
   color: #FFF;
   display: block;
 }
-.sum-gold strong { color: var(--gold); }
+
+.sum-gold strong {
+  color: var(--gold);
+}
+
 .kpi-sub {
   font-size: 12px;
   color: var(--muted);
@@ -622,6 +712,7 @@ input:focus, select:focus {
   gap: 8px;
   flex-wrap: wrap;
 }
+
 .input-sm {
   width: 200px;
   padding: 8px 12px;
@@ -667,6 +758,7 @@ input:focus, select:focus {
 .sheet-table tbody tr.row-yellow {
   background: var(--yellow-row) !important;
 }
+
 .sheet-table tbody tr.row-yellow td {
   color: #000 !important;
   font-weight: 800 !important;
@@ -694,10 +786,12 @@ input:focus, select:focus {
   font-weight: 700;
   font-size: 12.5px;
 }
+
 .mini-btn:hover {
   background: var(--gold);
   color: #000;
 }
+
 .row-yellow .mini-btn {
   background: #111;
   color: var(--yellow-row);
@@ -715,6 +809,7 @@ input:focus, select:focus {
   border-radius: 8px;
   padding: 2px;
 }
+
 .stock-step-btn {
   width: 28px;
   height: 28px;
@@ -726,10 +821,12 @@ input:focus, select:focus {
   font-size: 15px;
   cursor: pointer;
 }
+
 .stock-step-btn:hover {
   background: var(--gold);
   color: #000;
 }
+
 .inline-stock-input {
   width: 68px !important;
   padding: 4px 6px !important;
@@ -740,6 +837,7 @@ input:focus, select:focus {
   font-weight: 900 !important;
   color: #FFF !important;
 }
+
 .inline-price-input {
   width: 82px !important;
   padding: 5px 8px !important;
@@ -751,7 +849,9 @@ input:focus, select:focus {
   border: 1.5px solid var(--gold-border) !important;
   border-radius: 8px !important;
 }
-.inline-price-input:focus, .inline-stock-input:focus {
+
+.inline-price-input:focus,
+.inline-stock-input:focus {
   background: rgba(255, 242, 170, 0.15) !important;
 }
 
@@ -800,6 +900,7 @@ input:focus, select:focus {
   color: var(--gold);
   margin-bottom: 4px;
 }
+
 .rep-card-info span {
   font-size: 12.5px;
   color: var(--muted);
@@ -831,9 +932,11 @@ input:focus, select:focus {
   margin-bottom: 6px;
   font-size: 13.5px;
 }
+
 .vbar-top strong {
   color: #FFF;
 }
+
 .vbar-top span {
   font-weight: 800;
   color: var(--gold);
@@ -852,9 +955,11 @@ input:focus, select:focus {
   background: linear-gradient(90deg, var(--burgundy-light), var(--gold));
   border-radius: 99px;
 }
+
 .vbar-fill.green {
   background: linear-gradient(90deg, #059669, #34D399);
 }
+
 .vbar-fill.yellow {
   background: linear-gradient(90deg, #D97706, #FACC15);
 }
@@ -881,16 +986,19 @@ input:focus, select:focus {
   border-radius: 12px;
   padding: 14px;
 }
+
 .big-total-box.gold {
   background: var(--burgundy);
   border-color: var(--gold);
 }
+
 .big-total-box span {
   display: block;
   font-size: 11.5px;
   color: var(--muted);
   font-weight: 700;
 }
+
 .big-total-box strong {
   font-family: 'Outfit', sans-serif;
   font-size: 24px;
@@ -912,8 +1020,14 @@ input:focus, select:focus {
   border-radius: 10px;
   font-size: 15px;
 }
-.cierre-line.yellow { color: var(--yellow-row); }
-.cierre-line.green { color: var(--green); }
+
+.cierre-line.yellow {
+  color: var(--yellow-row);
+}
+
+.cierre-line.green {
+  color: var(--green);
+}
 
 .cierre-buttons {
   display: flex;
@@ -951,6 +1065,7 @@ input:focus, select:focus {
   padding: 16px;
   z-index: 99;
 }
+
 .modal-card {
   width: 100%;
   max-width: 430px;
@@ -959,7 +1074,11 @@ input:focus, select:focus {
   border-radius: 16px;
   padding: 22px;
 }
-.modal-card h3 { margin-bottom: 14px; }
+
+.modal-card h3 {
+  margin-bottom: 14px;
+}
+
 .modal-btns {
   display: flex;
   justify-content: flex-end;
@@ -983,6 +1102,7 @@ input:focus, select:focus {
   flex-direction: column;
   gap: 8px;
 }
+
 .toast {
   background: #2C070C;
   border: 2px solid var(--gold);
@@ -990,16 +1110,231 @@ input:focus, select:focus {
   padding: 12px 18px;
   border-radius: 10px;
   font-weight: 800;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.7);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7);
+}
+
+/* ==========================================================================
+   SECCIÓN COBRAR DEUDA DETALLADA EN CAJA Y SINCRONIZACIÓN CLOUD / WINDOWS EXE
+   ========================================================================== */
+.cloud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--gold);
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  padding: 2px 9px;
+  border-radius: 99px;
+  cursor: pointer;
+}
+
+.cloud-badge.offline {
+  background: rgba(255, 230, 0, 0.15);
+  border-color: var(--yellow-row);
+  color: var(--yellow-row);
+}
+
+.debt-checkout-box {
+  background: linear-gradient(145deg, #2A060B 0%, #180306 100%);
+  border: 2px solid var(--yellow-row);
+}
+
+.debt-selector-bar {
+  min-width: 330px;
+}
+
+.debt-select {
+  border: 2px solid var(--yellow-row) !important;
+  background: #140204 !important;
+  color: var(--yellow-row) !important;
+  font-weight: 800 !important;
+  font-size: 14.5px !important;
+}
+
+.debt-detail-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1.5px dashed rgba(255, 230, 0, 0.35);
+}
+
+.debt-detail-grid {
+  display: grid;
+  grid-template-columns: 1.75fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.debt-items-card {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1.5px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.debt-items-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.debt-status-pill {
+  background: var(--yellow-row);
+  color: #000;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 3px 8px;
+  border-radius: 99px;
+  margin-left: 8px;
+}
+
+.debt-summary-totals {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 230, 0, 0.1);
+  border: 1.5px solid var(--yellow-row);
+  border-radius: 10px;
+}
+
+.debt-summary-totals span {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+  margin-right: 6px;
+}
+
+.debt-summary-totals strong {
+  font-family: 'Outfit', sans-serif;
+  font-size: 20px;
+}
+
+.debt-pay-card {
+  background: rgba(0, 0, 0, 0.42);
+  border: 1.5px solid var(--gold);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.debt-live-bs-box {
+  background: rgba(255, 242, 170, 0.1);
+  border: 1.5px solid var(--gold-border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.debt-live-bs-box span {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.debt-live-bs-box strong {
+  font-size: 18px;
+  color: var(--gold);
+  font-family: 'Outfit', sans-serif;
+}
+
+.offline-features-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.offline-feature-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.offline-feature-item > i {
+  font-size: 22px;
+  margin-top: 2px;
+}
+
+.offline-feature-item p {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.cloud-box-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1.5px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.sql-instructions-box {
+  background: rgba(0, 0, 0, 0.38);
+  border: 1.5px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.sql-textarea {
+  width: 100%;
+  height: 230px;
+  background: #0D0103;
+  color: #A7F3D0;
+  border: 1px solid var(--gold-border);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  resize: vertical;
 }
 
 @media (max-width: 1024px) {
-  .sale-inputs-grid, .pay-buttons-row, .summary-strip, .cierre-simple-layout, .cierre-big-totals, .report-action-cards, .reports-charts-grid {
+
+  .sale-inputs-grid,
+  .pay-buttons-row,
+  .summary-strip,
+  .cierre-simple-layout,
+  .cierre-big-totals,
+  .report-action-cards,
+  .reports-charts-grid,
+  .debt-detail-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
 @media (max-width: 640px) {
-  .sale-inputs-grid, .pay-buttons-row, .summary-strip, .cierre-big-totals, .report-action-cards, .reports-charts-grid {
+
+  .sale-inputs-grid,
+  .pay-buttons-row,
+  .summary-strip,
+  .cierre-big-totals,
+  .report-action-cards,
+  .reports-charts-grid,
+  .debt-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .debt-selector-bar {
+    min-width: 100%;
   }
 }
