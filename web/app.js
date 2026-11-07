@@ -241,10 +241,11 @@
     const qty = parseFloat(document.getElementById('entry-qty').value) || 0;
     const price = parseFloat(document.getElementById('entry-price').value) || 0;
     const totalUsd = round2(qty * price);
-    const totalBs = round2(totalUsd * (parseFloat(state.exchangeRate) || 1000));
+    const rate = parseFloat(state.exchangeRate) || 1;
+    const totalBs = round2(totalUsd * rate);
 
     document.getElementById('display-total-usd').textContent = `$${fmt(totalUsd, 2)}`;
-    document.getElementById('display-total-bs').textContent = `${fmt(totalBs, 0)} Bs`;
+    document.getElementById('display-total-bs').textContent = `${fmt(totalBs, 2)} Bs`;
   }
 
   function getTotals() {
@@ -487,7 +488,7 @@
         <td>
           <input type="number" step="0.01" min="0" class="inline-price-input" data-id="${p.id}" value="${Number(p.price).toFixed(2)}" title="Cambia el precio y presiona Enter o clic afuera">
         </td>
-        <td id="bs-cell-${p.id}"><strong>${fmt(p.price * rate, 0)} Bs</strong></td>
+        <td id="bs-cell-${p.id}"><strong>${fmt(p.price * rate, 2)} Bs</strong></td>
         <td>
           <div class="inline-stock-wrap">
             <button type="button" class="stock-step-btn btn-stk-minus" data-id="${p.id}" title="Restar 1 al Stock">-</button>
@@ -531,7 +532,8 @@
           p.price = round2(val);
           inp.value = p.price.toFixed(2);
           const bsCell = document.getElementById(`bs-cell-${p.id}`);
-          if (bsCell) bsCell.innerHTML = `<strong>${fmt(p.price * rate, 0)} Bs</strong>`;
+          const currentRate = parseFloat(state.exchangeRate) || 1;
+          if (bsCell) bsCell.innerHTML = `<strong>${fmt(p.price * currentRate, 2)} Bs</strong>`;
           saveState();
           renderQuickButtons();
           renderDatalists();
@@ -1428,7 +1430,8 @@
   // ==========================================================================
   function round2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
   function fmt(n, d = 2) {
-    return (Number(n) || 0).toLocaleString('es-VE', { minimumFractionDigits: d, maximumFractionDigits: d });
+    const val = Number(n) || 0;
+    return val.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d });
   }
   function esc(s) {
     return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
