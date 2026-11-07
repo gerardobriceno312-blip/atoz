@@ -26,3 +26,4 @@ jobs:
         with:
           name: Bodegon-Atoz-Windows-EXE
           path: dist/*.exe
+

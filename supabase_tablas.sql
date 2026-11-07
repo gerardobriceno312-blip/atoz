@@ -109,3 +109,4 @@ CREATE POLICY "Acceso total atoz_cierres" ON public.atoz_cierres FOR ALL USING (
 
 DROP POLICY IF EXISTS "Acceso total atoz_usuarios" ON public.atoz_usuarios;
 CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING (true) WITH CHECK (true);
+
