@@ -59,8 +59,11 @@
           <h2>BODEGÓN ATO'Z</h2>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <span id="active-user-badge" class="user-badge">Admin: David Zara</span>
-            <button type="button" id="cloud-status-badge" class="cloud-badge" title="Estado de Base de Datos y Sincronización Multi-PC">
-              <i class="fa-solid fa-cloud"></i> <span id="cloud-status-text">Sincronizando...</span>
+            <button type="button" id="cloud-status-badge" class="cloud-badge" title="Estado de Guardado Local y Nube">
+              <i class="fa-solid fa-hard-drive"></i> <span id="cloud-status-text">Guardado Local Activo</span>
+            </button>
+            <button type="button" id="topbar-download-app-btn" class="cloud-badge" style="background:rgba(255,242,170,0.2); border-color:var(--gold); color:var(--gold);" title="Descargar el sistema completo con todos tus datos actuales para usarlo 100% local sin internet">
+              <i class="fa-solid fa-download"></i> Descargar Sistema Local
             </button>
           </div>
         </div>
@@ -118,22 +121,27 @@
            ==================================================================== -->
       <section id="tab-caja" class="view active">
 
-        <!-- SECCIÓN A: REGISTRAR VENTA RÁPIDA -->
+        <!-- SECCIÓN A: REGISTRAR VENTA RÁPIDA (1 O VARIOS PRODUCTOS A LA VEZ) -->
         <div class="box">
           <div class="box-header">
-            <h3><i class="fa-solid fa-bolt text-gold"></i> Registrar Venta Rápida</h3>
-            <span class="hint">Toca un producto rápido o escríbelo, elige cómo pagó y presiona Registrar</span>
+            <div>
+              <h3><i class="fa-solid fa-bolt text-gold"></i> Registrar Venta o Pedido Múltiple para un Cliente</h3>
+              <span class="hint">Toca varios productos rápidos (o búscalos y dale a <strong>+ Agregar</strong>) para armar la cuenta del cliente y registrar todo junto</span>
+            </div>
+            <button type="button" id="btn-clear-cart" class="btn-outline hidden" style="padding:6px 12px; font-size:12.5px;">
+              <i class="fa-solid fa-broom"></i> Limpiar Selección
+            </button>
           </div>
 
-          <!-- Botones rápidos de 1 clic -->
+          <!-- Botones rápidos de 1 clic (Cada clic agrega al pedido del cliente) -->
           <div id="quick-products-grid" class="quick-grid"></div>
 
-          <!-- Formulario de 3 pasos simples -->
+          <!-- Formulario para buscar cualquier producto de los 775 y agregar varios -->
           <form id="sale-form" class="simple-sale-form">
-            <div class="sale-inputs-grid">
+            <div class="sale-inputs-grid sale-inputs-multi">
               <div class="field field-prod">
-                <label>1. Producto</label>
-                <input type="text" id="entry-product" list="datalist-products" placeholder="Ej: POLARCITA, TOBO LIGHT..." required autocomplete="off">
+                <label>1. Buscar o Escribir Producto (Opcional si ya tocaste botones rápidos)</label>
+                <input type="text" id="entry-product" list="datalist-products" placeholder="Escribe para buscar entre los 775 productos..." autocomplete="off">
                 <datalist id="datalist-products"></datalist>
               </div>
 
@@ -141,18 +149,25 @@
                 <label>Cantidad</label>
                 <div class="qty-control">
                   <button type="button" id="qty-minus">-</button>
-                  <input type="number" id="entry-qty" value="1" min="1" step="any" required>
+                  <input type="number" id="entry-qty" value="1" min="1" step="any">
                   <button type="button" id="qty-plus">+</button>
                 </div>
               </div>
 
               <div class="field field-price">
-                <label>Precio ($)</label>
-                <input type="number" id="entry-price" step="0.01" min="0" placeholder="0.00" required>
+                <label>Precio Unit ($)</label>
+                <input type="number" id="entry-price" step="0.01" min="0" placeholder="0.00">
+              </div>
+
+              <div class="field field-add-btn">
+                <label>Sumar más cosas</label>
+                <button type="button" id="btn-add-to-cart" class="btn-outline btn-add-item">
+                  <i class="fa-solid fa-cart-plus"></i> + AGREGAR OTRO
+                </button>
               </div>
 
               <div class="field field-total">
-                <label>TOTAL A COBRAR</label>
+                <label>TOTAL PEDIDO A COBRAR</label>
                 <div class="total-display">
                   <strong id="display-total-usd">$0,00</strong>
                   <small id="display-total-bs">0,00 Bs</small>
@@ -160,9 +175,32 @@
               </div>
             </div>
 
+            <!-- LISTA DE VARIOS PRODUCTOS SELECCIONADOS PARA EL CLIENTE -->
+            <div id="cart-items-box" class="cart-items-box hidden">
+              <div class="cart-box-header">
+                <strong><i class="fa-solid fa-basket-shopping text-gold"></i> Productos Seleccionados para este Cliente (<span id="cart-count-label">0</span>):</strong>
+                <span class="hint">Puedes tocar más botones arriba o cambiar cantidades aquí mismo</span>
+              </div>
+              <div class="table-wrap" style="max-height:220px; overflow-y:auto;">
+                <table class="sheet-table">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">PRODUCTO SELECCIONADO</th>
+                      <th>CANTIDAD</th>
+                      <th>PRECIO UNIT ($)</th>
+                      <th>SUBTOTAL ($)</th>
+                      <th>SUBTOTAL EXACTO (Bs)</th>
+                      <th>QUITAR</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cart-items-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
             <!-- PASO 2: ¿CÓMO PAGÓ EL CLIENTE? -->
             <div class="pay-methods-section">
-              <label class="section-label">2. ¿Cómo pagó?</label>
+              <label class="section-label">2. ¿Cómo pagó todo el pedido?</label>
               <div class="pay-buttons-row">
                 <button type="button" class="pay-btn active" data-pay="punto">
                   <i class="fa-solid fa-credit-card"></i> PUNTO (Bs)
@@ -198,7 +236,7 @@
 
               <div class="submit-buttons-wrap">
                 <button type="submit" id="submit-sale-btn" class="btn-gold btn-register">
-                  <i class="fa-solid fa-check"></i> REGISTRAR VENTA
+                  <i class="fa-solid fa-check-double"></i> REGISTRAR VENTA / PEDIDO COMPLETO
                 </button>
               </div>
             </div>
@@ -704,11 +742,11 @@
                   <strong>Opción 2 (Carpeta Portátil para Windows / USB — 100% Libre de Virus):</strong>
                   <p>Windows Defender bloquea los archivos <code>.exe</code> que no tienen certificado pago de Microsoft (\$400/año). Para que <strong>nunca te salga alerta de virus</strong> en ninguna PC, descarga el paquete portátil oficial <strong>.ZIP</strong> o el archivo directo autocontenido (trae el lanzador de ventana de escritorio de Windows y todo el sistema adentro para usar sin internet):</p>
                   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-                    <a href="Bodegon_Atoz_Windows_Local.zip" download="Bodegon_Atoz_Windows_Local.zip" class="btn-gold" style="text-decoration:none;">
-                      <i class="fa-solid fa-box-open"></i> DESCARGAR PAQUETE WINDOWS PORTABLE (.ZIP SIN ALERTAS)
-                    </a>
-                    <a href="Bodegon_Atoz_App_Local.html" download="Bodegon_Atoz_App_Local.html" class="btn-outline" style="text-decoration:none;">
-                      <i class="fa-solid fa-laptop-file"></i> Descargar Sistema Completo en 1 Solo Archivo (Offline)
+                    <button type="button" id="btn-download-live-offline-app" class="btn-gold">
+                      <i class="fa-solid fa-download"></i> DESCARGAR SISTEMA COMPLETO CON DATOS EN LOCAL (1 CLIC)
+                    </button>
+                    <a href="Bodegon_Atoz_Windows_Local.zip" download="Bodegon_Atoz_Windows_Local.zip" class="btn-outline" style="text-decoration:none;">
+                      <i class="fa-solid fa-box-open"></i> Descargar Carpeta Portátil Windows (.ZIP)
                     </a>
                   </div>
                 </div>

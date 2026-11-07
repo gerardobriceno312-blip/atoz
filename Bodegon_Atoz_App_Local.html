@@ -519,6 +519,57 @@ select:focus {
   margin-bottom: 16px;
 }
 
+.sale-inputs-grid.sale-inputs-multi {
+  grid-template-columns: 2.1fr 1fr 0.9fr 1.15fr 1.35fr;
+}
+
+.btn-add-item {
+  width: 100%;
+  height: 43px;
+  justify-content: center;
+  background: rgba(255, 242, 170, 0.12);
+  border: 2px solid var(--gold);
+  color: var(--gold);
+  font-weight: 900;
+}
+
+.btn-add-item:hover {
+  background: var(--gold);
+  color: #160204;
+}
+
+.cart-items-box {
+  background: rgba(255, 242, 170, 0.06);
+  border: 2px solid var(--gold);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.cart-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.q-btn.in-cart {
+  border-color: var(--yellow-row);
+  background: rgba(255, 230, 0, 0.16);
+  box-shadow: 0 0 10px rgba(255, 230, 0, 0.25);
+}
+
+.q-cart-badge {
+  background: var(--yellow-row);
+  color: #000;
+  font-weight: 900;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 99px;
+}
+
 .qty-control {
   display: flex;
 }
@@ -1400,8 +1451,11 @@ select:focus {
           <h2>BODEGÓN ATO'Z</h2>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <span id="active-user-badge" class="user-badge">Admin: David Zara</span>
-            <button type="button" id="cloud-status-badge" class="cloud-badge" title="Estado de Base de Datos y Sincronización Multi-PC">
-              <i class="fa-solid fa-cloud"></i> <span id="cloud-status-text">Sincronizando...</span>
+            <button type="button" id="cloud-status-badge" class="cloud-badge" title="Estado de Guardado Local y Nube">
+              <i class="fa-solid fa-hard-drive"></i> <span id="cloud-status-text">Guardado Local Activo</span>
+            </button>
+            <button type="button" id="topbar-download-app-btn" class="cloud-badge" style="background:rgba(255,242,170,0.2); border-color:var(--gold); color:var(--gold);" title="Descargar el sistema completo con todos tus datos actuales para usarlo 100% local sin internet">
+              <i class="fa-solid fa-download"></i> Descargar Sistema Local
             </button>
           </div>
         </div>
@@ -1459,22 +1513,27 @@ select:focus {
            ==================================================================== -->
       <section id="tab-caja" class="view active">
 
-        <!-- SECCIÓN A: REGISTRAR VENTA RÁPIDA -->
+        <!-- SECCIÓN A: REGISTRAR VENTA RÁPIDA (1 O VARIOS PRODUCTOS A LA VEZ) -->
         <div class="box">
           <div class="box-header">
-            <h3><i class="fa-solid fa-bolt text-gold"></i> Registrar Venta Rápida</h3>
-            <span class="hint">Toca un producto rápido o escríbelo, elige cómo pagó y presiona Registrar</span>
+            <div>
+              <h3><i class="fa-solid fa-bolt text-gold"></i> Registrar Venta o Pedido Múltiple para un Cliente</h3>
+              <span class="hint">Toca varios productos rápidos (o búscalos y dale a <strong>+ Agregar</strong>) para armar la cuenta del cliente y registrar todo junto</span>
+            </div>
+            <button type="button" id="btn-clear-cart" class="btn-outline hidden" style="padding:6px 12px; font-size:12.5px;">
+              <i class="fa-solid fa-broom"></i> Limpiar Selección
+            </button>
           </div>
 
-          <!-- Botones rápidos de 1 clic -->
+          <!-- Botones rápidos de 1 clic (Cada clic agrega al pedido del cliente) -->
           <div id="quick-products-grid" class="quick-grid"></div>
 
-          <!-- Formulario de 3 pasos simples -->
+          <!-- Formulario para buscar cualquier producto de los 775 y agregar varios -->
           <form id="sale-form" class="simple-sale-form">
-            <div class="sale-inputs-grid">
+            <div class="sale-inputs-grid sale-inputs-multi">
               <div class="field field-prod">
-                <label>1. Producto</label>
-                <input type="text" id="entry-product" list="datalist-products" placeholder="Ej: POLARCITA, TOBO LIGHT..." required autocomplete="off">
+                <label>1. Buscar o Escribir Producto (Opcional si ya tocaste botones rápidos)</label>
+                <input type="text" id="entry-product" list="datalist-products" placeholder="Escribe para buscar entre los 775 productos..." autocomplete="off">
                 <datalist id="datalist-products"></datalist>
               </div>
 
@@ -1482,18 +1541,25 @@ select:focus {
                 <label>Cantidad</label>
                 <div class="qty-control">
                   <button type="button" id="qty-minus">-</button>
-                  <input type="number" id="entry-qty" value="1" min="1" step="any" required>
+                  <input type="number" id="entry-qty" value="1" min="1" step="any">
                   <button type="button" id="qty-plus">+</button>
                 </div>
               </div>
 
               <div class="field field-price">
-                <label>Precio ($)</label>
-                <input type="number" id="entry-price" step="0.01" min="0" placeholder="0.00" required>
+                <label>Precio Unit ($)</label>
+                <input type="number" id="entry-price" step="0.01" min="0" placeholder="0.00">
+              </div>
+
+              <div class="field field-add-btn">
+                <label>Sumar más cosas</label>
+                <button type="button" id="btn-add-to-cart" class="btn-outline btn-add-item">
+                  <i class="fa-solid fa-cart-plus"></i> + AGREGAR OTRO
+                </button>
               </div>
 
               <div class="field field-total">
-                <label>TOTAL A COBRAR</label>
+                <label>TOTAL PEDIDO A COBRAR</label>
                 <div class="total-display">
                   <strong id="display-total-usd">$0,00</strong>
                   <small id="display-total-bs">0,00 Bs</small>
@@ -1501,9 +1567,32 @@ select:focus {
               </div>
             </div>
 
+            <!-- LISTA DE VARIOS PRODUCTOS SELECCIONADOS PARA EL CLIENTE -->
+            <div id="cart-items-box" class="cart-items-box hidden">
+              <div class="cart-box-header">
+                <strong><i class="fa-solid fa-basket-shopping text-gold"></i> Productos Seleccionados para este Cliente (<span id="cart-count-label">0</span>):</strong>
+                <span class="hint">Puedes tocar más botones arriba o cambiar cantidades aquí mismo</span>
+              </div>
+              <div class="table-wrap" style="max-height:220px; overflow-y:auto;">
+                <table class="sheet-table">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">PRODUCTO SELECCIONADO</th>
+                      <th>CANTIDAD</th>
+                      <th>PRECIO UNIT ($)</th>
+                      <th>SUBTOTAL ($)</th>
+                      <th>SUBTOTAL EXACTO (Bs)</th>
+                      <th>QUITAR</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cart-items-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
             <!-- PASO 2: ¿CÓMO PAGÓ EL CLIENTE? -->
             <div class="pay-methods-section">
-              <label class="section-label">2. ¿Cómo pagó?</label>
+              <label class="section-label">2. ¿Cómo pagó todo el pedido?</label>
               <div class="pay-buttons-row">
                 <button type="button" class="pay-btn active" data-pay="punto">
                   <i class="fa-solid fa-credit-card"></i> PUNTO (Bs)
@@ -1539,7 +1628,7 @@ select:focus {
 
               <div class="submit-buttons-wrap">
                 <button type="submit" id="submit-sale-btn" class="btn-gold btn-register">
-                  <i class="fa-solid fa-check"></i> REGISTRAR VENTA
+                  <i class="fa-solid fa-check-double"></i> REGISTRAR VENTA / PEDIDO COMPLETO
                 </button>
               </div>
             </div>
@@ -2045,11 +2134,11 @@ select:focus {
                   <strong>Opción 2 (Carpeta Portátil para Windows / USB — 100% Libre de Virus):</strong>
                   <p>Windows Defender bloquea los archivos <code>.exe</code> que no tienen certificado pago de Microsoft (\$400/año). Para que <strong>nunca te salga alerta de virus</strong> en ninguna PC, descarga el paquete portátil oficial <strong>.ZIP</strong> o el archivo directo autocontenido (trae el lanzador de ventana de escritorio de Windows y todo el sistema adentro para usar sin internet):</p>
                   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-                    <a href="Bodegon_Atoz_Windows_Local.zip" download="Bodegon_Atoz_Windows_Local.zip" class="btn-gold" style="text-decoration:none;">
-                      <i class="fa-solid fa-box-open"></i> DESCARGAR PAQUETE WINDOWS PORTABLE (.ZIP SIN ALERTAS)
-                    </a>
-                    <a href="Bodegon_Atoz_App_Local.html" download="Bodegon_Atoz_App_Local.html" class="btn-outline" style="text-decoration:none;">
-                      <i class="fa-solid fa-laptop-file"></i> Descargar Sistema Completo en 1 Solo Archivo (Offline)
+                    <button type="button" id="btn-download-live-offline-app" class="btn-gold">
+                      <i class="fa-solid fa-download"></i> DESCARGAR SISTEMA COMPLETO CON DATOS EN LOCAL (1 CLIC)
+                    </button>
+                    <a href="Bodegon_Atoz_Windows_Local.zip" download="Bodegon_Atoz_Windows_Local.zip" class="btn-outline" style="text-decoration:none;">
+                      <i class="fa-solid fa-box-open"></i> Descargar Carpeta Portátil Windows (.ZIP)
                     </a>
                   </div>
                 </div>
@@ -2426,13 +2515,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   const PAGE_SIZE = 50;
   let deferredInstallPrompt = null;
   let cloudSyncTimer = null;
+  // Carrito / Selección múltiple de productos para un mismo cliente en Caja
+  let cartItems = [];
 
   // ==========================================================================
-  // 1. INICIO, MODO OFFLINE (SERVICE WORKER) Y ALMACENAMIENTO MULTI-PC
+  // 1. INICIO, MODO OFFLINE (SERVICE WORKER) Y ALMACENAMIENTO LOCAL + MULTI-PC
   // ==========================================================================
   function init() {
     registerOfflineServiceWorker();
     loadState();
+    loadFromIndexedDBFallback();
     ensureClientsItemizedDebt();
     bindEvents();
     checkSession();
@@ -2446,6 +2538,48 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     setInterval(() => {
       pullFromSupabaseCloud(false);
     }, 25000);
+  }
+
+  // Base de datos local IndexedDB del navegador/PC (persistencia extra en disco local)
+  function saveToIndexedDB() {
+    try {
+      if (!window.indexedDB) return;
+      const req = window.indexedDB.open('BodegonAtozLocalDB', 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(JSON.parse(JSON.stringify(state)), 'MAIN_STATE');
+      };
+    } catch (err) {}
+  }
+
+  function loadFromIndexedDBFallback() {
+    try {
+      if (!window.indexedDB) return;
+      const req = window.indexedDB.open('BodegonAtozLocalDB', 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('kv', 'readonly');
+        const getReq = tx.objectStore('kv').get('MAIN_STATE');
+        getReq.onsuccess = () => {
+          const idbState = getReq.result;
+          if (idbState && Number(idbState.updatedAt) > Number(state.updatedAt || 0)) {
+            state = Object.assign({}, state, idbState);
+            ensureClientsItemizedDebt();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            if (currentUser) renderAll();
+          }
+        };
+      };
+    } catch (err) {}
   }
 
   function registerOfflineServiceWorker() {
@@ -2558,6 +2692,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     state.updatedAt = Date.now();
     ensureClientsItemizedDebt();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    saveToIndexedDB();
     if (pushToCloud) {
       if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
       cloudSyncTimer = setTimeout(() => {
@@ -2804,6 +2939,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     if (inp) inp.value = Number(state.exchangeRate).toFixed(2);
     renderDatalists();
     renderQuickButtons();
+    renderCartItems();
     updateLiveTotal();
     renderCajaDebtSection();
     renderSalesTable();
@@ -2815,7 +2951,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   }
 
   // ==========================================================================
-  // 2. CAJA DIARIA + SECCIÓN PARA COBRAR AL CLIENTE CON DEUDA DETALLADA
+  // 2. CAJA DIARIA + SELECCIÓN MÚLTIPLE DE PRODUCTOS + COBRO DE DEUDAS
   // ==========================================================================
   function renderDatalists() {
     document.getElementById('datalist-products').innerHTML = state.products
@@ -2827,46 +2963,183 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       .join('');
   }
 
+  function addToCart(productName, unitPrice, addQty = 1) {
+    const cleanName = (productName || '').trim().toUpperCase();
+    if (!cleanName) return;
+    const price = round2(parseFloat(unitPrice) || 0);
+    const qty = round2(parseFloat(addQty) || 1);
+
+    const existing = cartItems.find(it => it.product.toUpperCase() === cleanName);
+    if (existing) {
+      existing.qty = round2(existing.qty + qty);
+      if (price > 0) existing.price = price;
+    } else {
+      cartItems.push({
+        id: `ci-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        product: cleanName,
+        qty,
+        price
+      });
+    }
+
+    renderQuickButtons();
+    renderCartItems();
+    updateLiveTotal();
+  }
+
   function renderQuickButtons() {
     const grid = document.getElementById('quick-products-grid');
     const quicks = state.products.filter(p => p.quick);
     grid.innerHTML = quicks
-      .map(
-        p => `
-      <button type="button" class="q-btn" data-name="${esc(p.name)}" data-price="${p.price}">
-        <strong>${esc(p.name)}</strong>
+      .map(p => {
+        const inCart = cartItems.find(it => it.product.toUpperCase() === (p.name || '').toUpperCase());
+        return `
+      <button type="button" class="q-btn ${inCart ? 'in-cart' : ''}" data-name="${esc(p.name)}" data-price="${p.price}">
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <strong>${esc(p.name)}</strong>
+          ${inCart ? `<span class="q-cart-badge">x${inCart.qty}</span>` : ''}
+        </div>
         <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
           <span>$${fmt(p.price, 2)}</span>
           <small style="font-size:11px; color:var(--muted);">Stock: ${p.stock ?? 0}</small>
         </div>
       </button>
-    `
-      )
+    `;
+      })
       .join('');
 
     grid.querySelectorAll('.q-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const name = btn.getAttribute('data-name');
         const price = parseFloat(btn.getAttribute('data-price')) || 0;
-        const pInput = document.getElementById('entry-product');
-        const qInput = document.getElementById('entry-qty');
+        addToCart(name, price, 1);
+      });
+    });
+  }
 
-        if (pInput.value === name) {
-          qInput.value = (parseFloat(qInput.value) || 1) + 1;
+  function renderCartItems() {
+    const box = document.getElementById('cart-items-box');
+    const clearBtn = document.getElementById('btn-clear-cart');
+    const countLbl = document.getElementById('cart-count-label');
+    const tbody = document.getElementById('cart-items-tbody');
+    if (!box || !tbody) return;
+
+    if (!cartItems.length) {
+      box.classList.add('hidden');
+      if (clearBtn) clearBtn.classList.add('hidden');
+      return;
+    }
+
+    box.classList.remove('hidden');
+    if (clearBtn) clearBtn.classList.remove('hidden');
+    const totalUnits = cartItems.reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
+    if (countLbl) countLbl.textContent = `${cartItems.length} productos • ${totalUnits} unds`;
+
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    tbody.innerHTML = cartItems
+      .map(it => {
+        const subUsd = round2((Number(it.qty) || 0) * (Number(it.price) || 0));
+        const subBs = round2(subUsd * rate);
+        return `
+        <tr>
+          <td style="text-align:left;"><strong>${esc(it.product)}</strong></td>
+          <td>
+            <div class="inline-stock-wrap">
+              <button type="button" class="stock-step-btn cart-qty-minus" data-id="${it.id}">-</button>
+              <input type="number" step="any" min="0.1" class="inline-stock-input cart-qty-inp" data-id="${it.id}" value="${it.qty}">
+              <button type="button" class="stock-step-btn cart-qty-plus" data-id="${it.id}">+</button>
+            </div>
+          </td>
+          <td>
+            <input type="number" step="0.01" min="0" class="inline-price-input cart-price-inp" data-id="${it.id}" value="${Number(it.price).toFixed(2)}">
+          </td>
+          <td><strong class="text-gold">$${fmt(subUsd, 2)}</strong></td>
+          <td><strong>${fmt(subBs, 2)} Bs</strong></td>
+          <td>
+            <button type="button" class="mini-btn cart-remove-btn" data-id="${it.id}" title="Quitar de la lista">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+      })
+      .join('');
+
+    tbody.querySelectorAll('.cart-qty-minus').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-id');
+        const item = cartItems.find(x => x.id === id);
+        if (!item) return;
+        if (item.qty <= 1) {
+          cartItems = cartItems.filter(x => x.id !== id);
         } else {
-          pInput.value = name;
-          qInput.value = 1;
-          document.getElementById('entry-price').value = price.toFixed(2);
+          item.qty = round2(item.qty - 1);
         }
+        renderQuickButtons();
+        renderCartItems();
+        updateLiveTotal();
+      });
+    });
+
+    tbody.querySelectorAll('.cart-qty-plus').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-id');
+        const item = cartItems.find(x => x.id === id);
+        if (item) {
+          item.qty = round2(item.qty + 1);
+          renderQuickButtons();
+          renderCartItems();
+          updateLiveTotal();
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.cart-qty-inp').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const item = cartItems.find(x => x.id === inp.getAttribute('data-id'));
+        const v = parseFloat(inp.value);
+        if (item && v > 0) {
+          item.qty = round2(v);
+          renderQuickButtons();
+          renderCartItems();
+          updateLiveTotal();
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.cart-price-inp').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const item = cartItems.find(x => x.id === inp.getAttribute('data-id'));
+        const v = parseFloat(inp.value);
+        if (item && !isNaN(v) && v >= 0) {
+          item.price = round2(v);
+          renderCartItems();
+          updateLiveTotal();
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.cart-remove-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        cartItems = cartItems.filter(x => x.id !== b.getAttribute('data-id'));
+        renderQuickButtons();
+        renderCartItems();
         updateLiveTotal();
       });
     });
   }
 
   function updateLiveTotal() {
-    const qty = parseFloat(document.getElementById('entry-qty').value) || 0;
-    const price = parseFloat(document.getElementById('entry-price').value) || 0;
-    const totalUsd = round2(qty * price);
+    const manualProd = (document.getElementById('entry-product')?.value || '').trim();
+    const manualQty = parseFloat(document.getElementById('entry-qty')?.value) || 0;
+    const manualPrice = parseFloat(document.getElementById('entry-price')?.value) || 0;
+    const manualUsd = manualProd ? round2(manualQty * manualPrice) : 0;
+
+    const cartUsd = round2(
+      cartItems.reduce((acc, it) => acc + round2((Number(it.qty) || 0) * (Number(it.price) || 0)), 0)
+    );
+
+    const totalUsd = round2(cartUsd + manualUsd);
     const rate = parseFloat(state.exchangeRate) || 1;
     const totalBs = round2(totalUsd * rate);
 
@@ -4073,6 +4346,38 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       }
     });
 
+    // Botón "+ AGREGAR OTRO" para sumar productos manuales a la lista del cliente
+    document.getElementById('btn-add-to-cart')?.addEventListener('click', () => {
+      const prodInp = document.getElementById('entry-product');
+      const qtyInp = document.getElementById('entry-qty');
+      const priceInp = document.getElementById('entry-price');
+      const name = prodInp.value.trim().toUpperCase();
+      if (!name) {
+        toast('Escribe o selecciona primero un producto para agregarlo');
+        prodInp.focus();
+        return;
+      }
+      const qty = parseFloat(qtyInp.value) || 1;
+      let price = parseFloat(priceInp.value);
+      if (isNaN(price) || price <= 0) {
+        const found = state.products.find(p => p.name.toUpperCase() === name);
+        price = found ? Number(found.price) : 0;
+      }
+      addToCart(name, price, qty);
+      prodInp.value = '';
+      qtyInp.value = 1;
+      priceInp.value = '';
+      updateLiveTotal();
+      prodInp.focus();
+    });
+
+    document.getElementById('btn-clear-cart')?.addEventListener('click', () => {
+      cartItems = [];
+      renderQuickButtons();
+      renderCartItems();
+      updateLiveTotal();
+    });
+
     // Cantidad + / -
     document.getElementById('qty-minus').addEventListener('click', () => {
       const inp = document.getElementById('entry-qty');
@@ -4097,20 +4402,45 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
     });
 
-    // Registrar Venta en 1 Clic (Y descontar del Stock + Guardar detalle si es Fiado)
+    // Registrar Venta o Pedido Múltiple Completo (1 o varios productos para el cliente)
     document.getElementById('sale-form').addEventListener('submit', e => {
       e.preventDefault();
-      const product = document.getElementById('entry-product').value.trim().toUpperCase();
-      const qty = parseFloat(document.getElementById('entry-qty').value) || 1;
-      const price = parseFloat(document.getElementById('entry-price').value) || 0;
-      const totalUsd = round2(qty * price);
+
+      // Si el usuario también escribió un producto en la casilla manual, incluirlo junto con los seleccionados
+      const manualProduct = document.getElementById('entry-product').value.trim().toUpperCase();
+      const manualQty = parseFloat(document.getElementById('entry-qty').value) || 1;
+      let manualPrice = parseFloat(document.getElementById('entry-price').value);
+      if (manualProduct && (isNaN(manualPrice) || manualPrice < 0)) {
+        const found = state.products.find(p => p.name.toUpperCase() === manualProduct);
+        manualPrice = found ? Number(found.price) : 0;
+      }
+
+      const itemsToRegister = [...cartItems];
+      if (manualProduct) {
+        const existing = itemsToRegister.find(it => it.product.toUpperCase() === manualProduct);
+        if (existing) {
+          existing.qty = round2(existing.qty + manualQty);
+        } else {
+          itemsToRegister.push({
+            id: `ci-${Date.now()}`,
+            product: manualProduct,
+            qty: manualQty,
+            price: round2(manualPrice || 0)
+          });
+        }
+      }
+
+      if (!itemsToRegister.length) {
+        toast('Toca uno o varios productos rápidos o escribe un producto para registrar la venta');
+        return;
+      }
+
       const rate = parseFloat(state.exchangeRate) || 1000;
-      const totalBs = round2(totalUsd * rate);
       let client = document.getElementById('entry-client').value.trim().toUpperCase();
       const highlight = document.getElementById('entry-highlight').checked || state.payMethod === 'pendiente';
 
       if (state.payMethod === 'pendiente' && !client) {
-        const asked = prompt('Esta venta es FIADA / PENDIENTE. Escribe el nombre del cliente para anotar lo que debe:');
+        const asked = prompt('Esta cuenta es FIADA / PENDIENTE. Escribe el nombre del cliente para anotar todo lo que lleva:');
         if (!asked || !asked.trim()) {
           toast('Debes indicar el nombre del cliente para registrar un fiado');
           return;
@@ -4119,70 +4449,92 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       }
 
       const nowTime = new Date().toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' });
-      const saleId = `s-${Date.now()}`;
+      const orderTotalUsd = round2(
+        itemsToRegister.reduce((acc, it) => acc + round2((Number(it.qty) || 1) * (Number(it.price) || 0)), 0)
+      );
+      const orderTotalBs = round2(orderTotalUsd * rate);
 
-      const sale = {
-        id: saleId,
-        hora: nowTime,
-        product,
-        qty,
-        price,
-        totalUsd,
-        totalConsumoUsd: totalUsd,
-        pagoMovilBs: state.payMethod === 'pagomovil' ? totalBs : 0,
-        divisasUsd: state.payMethod === 'divisas' ? totalUsd : 0,
-        efectivoBs: state.payMethod === 'efectivobs' ? totalBs : 0,
-        puntoBs: state.payMethod === 'punto' ? totalBs : 0,
-        zelleUsd: state.payMethod === 'zelle' ? totalUsd : 0,
-        client,
-        pendienteUsd: state.payMethod === 'pendiente' ? totalUsd : 0,
-        abonadoUsd: 0,
-        highlight
-      };
-
-      state.dailySales.unshift(sale);
-
-      // Descontar automáticamente del stock si el producto existe en inventario
-      const invItem = state.products.find(p => p.name.toUpperCase() === product);
-      let remainingText = '';
-      if (invItem) {
-        invItem.stock = Math.max(0, round2((Number(invItem.stock) || 0) - qty));
-        remainingText = ` • Quedan ${invItem.stock} en Stock`;
-      }
-
-      // Si es fiado/pendiente, sumarlo a la deuda del cliente y guardar el producto detallado
+      // Si es fiado/pendiente, preparar el cliente para agregarle cada producto detallado
+      let clientObj = null;
       if (state.payMethod === 'pendiente' && client) {
-        let c = state.clients.find(x => x.name.toUpperCase() === client);
-        if (!c) {
-          c = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE', itemsPendientes: [] };
-          state.clients.unshift(c);
+        clientObj = state.clients.find(x => x.name.toUpperCase() === client);
+        if (!clientObj) {
+          clientObj = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE', itemsPendientes: [] };
+          state.clients.unshift(clientObj);
         }
-        if (!Array.isArray(c.itemsPendientes)) c.itemsPendientes = [];
-        c.deuda = round2((Number(c.deuda) || 0) + totalUsd);
-        c.itemsPendientes.push({
-          id: `it-${saleId}`,
-          date: nowTime,
-          product,
-          qty,
-          price,
-          totalUsd
-        });
+        if (!Array.isArray(clientObj.itemsPendientes)) clientObj.itemsPendientes = [];
       }
 
+      // Registrar cada producto del pedido (en orden para que queden juntos en la hoja diaria)
+      [...itemsToRegister].reverse().forEach((it, idx) => {
+        const isFirstRow = idx === itemsToRegister.length - 1;
+        const itemUsd = round2((Number(it.qty) || 1) * (Number(it.price) || 0));
+        const itemBs = round2(itemUsd * rate);
+        const saleId = `s-${Date.now()}-${idx}`;
+
+        const sale = {
+          id: saleId,
+          hora: nowTime,
+          product: it.product,
+          qty: it.qty,
+          price: it.price,
+          totalUsd: itemUsd,
+          totalConsumoUsd: isFirstRow ? orderTotalUsd : itemUsd,
+          pagoMovilBs: state.payMethod === 'pagomovil' ? itemBs : 0,
+          divisasUsd: state.payMethod === 'divisas' ? itemUsd : 0,
+          efectivoBs: state.payMethod === 'efectivobs' ? itemBs : 0,
+          puntoBs: state.payMethod === 'punto' ? itemBs : 0,
+          zelleUsd: state.payMethod === 'zelle' ? itemUsd : 0,
+          client,
+          pendienteUsd: state.payMethod === 'pendiente' ? itemUsd : 0,
+          abonadoUsd: 0,
+          highlight
+        };
+
+        state.dailySales.unshift(sale);
+
+        // Descontar automáticamente del stock si el producto existe en inventario
+        const invItem = state.products.find(p => p.name.toUpperCase() === it.product.toUpperCase());
+        if (invItem) {
+          invItem.stock = Math.max(0, round2((Number(invItem.stock) || 0) - (Number(it.qty) || 1)));
+        }
+
+        // Si es fiado/pendiente, guardar cada producto individual en el detalle de deuda del cliente
+        if (clientObj) {
+          clientObj.deuda = round2((Number(clientObj.deuda) || 0) + itemUsd);
+          clientObj.itemsPendientes.push({
+            id: `it-${saleId}`,
+            date: nowTime,
+            product: it.product,
+            qty: it.qty,
+            price: it.price,
+            totalUsd: itemUsd
+          });
+        }
+      });
+
+      // Limpiar carrito y formulario
+      cartItems = [];
       saveState();
       document.getElementById('entry-product').value = '';
       document.getElementById('entry-qty').value = 1;
       document.getElementById('entry-price').value = '';
       document.getElementById('entry-client').value = '';
-      updateLiveTotal();
       renderQuickButtons();
+      renderCartItems();
+      updateLiveTotal();
       renderDatalists();
       renderCajaDebtSection();
       renderSalesTable();
       renderClientsView();
       renderInventoryView();
       renderReportsView();
-      toast(`Registrado: ${qty}x ${product} ($${fmt(totalUsd, 2)} / ${fmt(totalBs, 2)} Bs)${remainingText}`);
+
+      toast(
+        itemsToRegister.length > 1
+          ? `¡Pedido de ${itemsToRegister.length} productos registrado! Total: $${fmt(orderTotalUsd, 2)} (${fmt(orderTotalBs, 2)} Bs)`
+          : `Registrado: ${itemsToRegister[0].qty}x ${itemsToRegister[0].product} ($${fmt(orderTotalUsd, 2)} / ${fmt(orderTotalBs, 2)} Bs)`
+      );
     });
 
     // Eventos de la Sección en Caja: Cobrar a Cliente con Deuda Detallada
@@ -4435,18 +4787,21 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       reader.readAsText(file);
     });
 
+    document.getElementById('topbar-download-app-btn')?.addEventListener('click', () => {
+      downloadStandaloneOfflineSystem();
+    });
+
+    document.getElementById('btn-download-live-offline-app')?.addEventListener('click', () => {
+      downloadStandaloneOfflineSystem();
+    });
+
     document.getElementById('btn-install-desktop-pwa')?.addEventListener('click', async () => {
       if (deferredInstallPrompt) {
         deferredInstallPrompt.prompt();
         await deferredInstallPrompt.userChoice;
         deferredInstallPrompt = null;
       } else {
-        alert(
-          'Para instalar Bodegón Ato\'z como programa en tu Escritorio de Windows:\n\n' +
-          '1. En la barra superior derecha de Chrome o Edge, haz clic en el ícono de Computadora con una flecha (Instalar aplicación).\n' +
-          '2. O abre el menú de los 3 puntos (⋮) -> "Guardar y compartir" -> "Instalar Bodegón Ato\'z".\n\n' +
-          '¡El sistema quedará en tu Escritorio y barra de tareas y funcionará 100% sin internet!'
-        );
+        downloadStandaloneOfflineSystem();
       }
     });
 
@@ -4465,6 +4820,82 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       renderCashiersView();
       toast('Cajero creado con éxito');
     });
+  }
+
+  // Descarga el sistema completo desde internet en 1 solo archivo local con TODOS los datos actuales guardados adentro
+  async function downloadStandaloneOfflineSystem() {
+    toast('Preparando descarga del Sistema Local con todos tus datos...');
+    try {
+      let htmlDoc = document.documentElement.outerHTML;
+      let cssText = '';
+      let appJsText = '';
+      let logoDataUrl = 'logo.png';
+
+      try {
+        const cssRes = await fetch('styles.css');
+        if (cssRes.ok) cssText = await cssRes.text();
+      } catch (e) {}
+
+      try {
+        const jsRes = await fetch('app.js');
+        if (jsRes.ok) appJsText = await jsRes.text();
+      } catch (e) {}
+
+      try {
+        const logoRes = await fetch('logo.png');
+        if (logoRes.ok) {
+          const blob = await logoRes.blob();
+          logoDataUrl = await new Promise(resolve => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.readAsDataURL(blob);
+          });
+        }
+      } catch (e) {}
+
+      const liveDataSnapshot = {
+        defaultExchangeRate: state.exchangeRate,
+        products: state.products,
+        clients: state.clients,
+        dailySales: state.dailySales,
+        closures: state.closures,
+        users: state.users
+      };
+
+      const bootstrapScript = `
+window.ATOZ_INITIAL_DATA = ${JSON.stringify(liveDataSnapshot)};
+try {
+  localStorage.setItem('${STORAGE_KEY}', JSON.stringify(${JSON.stringify(state)}));
+} catch (e) {}
+`;
+
+      let finalHtml = '<!DOCTYPE html>\n<html lang="es">\n' + document.head.outerHTML + '\n' + document.body.outerHTML + '\n</html>';
+
+      if (logoDataUrl.startsWith('data:')) {
+        finalHtml = finalHtml.replace(/href="logo\.png"/g, `href="${logoDataUrl}"`).replace(/src="logo\.png"/g, `src="${logoDataUrl}"`);
+      }
+      if (cssText) {
+        finalHtml = finalHtml.replace('<link rel="stylesheet" href="styles.css">', `<style>\n${cssText}\n</style>`);
+      }
+      if (appJsText) {
+        finalHtml = finalHtml
+          .replace('<script src="data.js"></script>', `<script>\n${bootstrapScript}\n</script>`)
+          .replace('<script src="app.js"></script>', `<script>\n${appJsText}\n</script>`);
+      } else {
+        // Si ya estaba ejecutándose desde el archivo local autocontenido, actualizar el snapshot interno
+        finalHtml = finalHtml.replace(/window\.ATOZ_INITIAL_DATA\s*=\s*\{[\s\S]*?\};/, bootstrapScript);
+      }
+
+      const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Bodegon_Atoz_Sistema_Local.html';
+      a.click();
+      toast('¡Sistema Local descargado con todas tus ventas, inventario y clientes guardados!');
+    } catch (err) {
+      console.error(err);
+      window.location.href = 'Bodegon_Atoz_App_Local.html';
+    }
   }
 
   // ==========================================================================

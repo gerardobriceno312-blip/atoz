@@ -144,13 +144,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   const PAGE_SIZE = 50;
   let deferredInstallPrompt = null;
   let cloudSyncTimer = null;
+  // Carrito / Selección múltiple de productos para un mismo cliente en Caja
+  let cartItems = [];
 
   // ==========================================================================
-  // 1. INICIO, MODO OFFLINE (SERVICE WORKER) Y ALMACENAMIENTO MULTI-PC
+  // 1. INICIO, MODO OFFLINE (SERVICE WORKER) Y ALMACENAMIENTO LOCAL + MULTI-PC
   // ==========================================================================
   function init() {
     registerOfflineServiceWorker();
     loadState();
+    loadFromIndexedDBFallback();
     ensureClientsItemizedDebt();
     bindEvents();
     checkSession();
@@ -164,6 +167,48 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     setInterval(() => {
       pullFromSupabaseCloud(false);
     }, 25000);
+  }
+
+  // Base de datos local IndexedDB del navegador/PC (persistencia extra en disco local)
+  function saveToIndexedDB() {
+    try {
+      if (!window.indexedDB) return;
+      const req = window.indexedDB.open('BodegonAtozLocalDB', 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(JSON.parse(JSON.stringify(state)), 'MAIN_STATE');
+      };
+    } catch (err) {}
+  }
+
+  function loadFromIndexedDBFallback() {
+    try {
+      if (!window.indexedDB) return;
+      const req = window.indexedDB.open('BodegonAtozLocalDB', 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('kv', 'readonly');
+        const getReq = tx.objectStore('kv').get('MAIN_STATE');
+        getReq.onsuccess = () => {
+          const idbState = getReq.result;
+          if (idbState && Number(idbState.updatedAt) > Number(state.updatedAt || 0)) {
+            state = Object.assign({}, state, idbState);
+            ensureClientsItemizedDebt();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            if (currentUser) renderAll();
+          }
+        };
+      };
+    } catch (err) {}
   }
 
   function registerOfflineServiceWorker() {
@@ -276,6 +321,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     state.updatedAt = Date.now();
     ensureClientsItemizedDebt();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    saveToIndexedDB();
     if (pushToCloud) {
       if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
       cloudSyncTimer = setTimeout(() => {
@@ -522,6 +568,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     if (inp) inp.value = Number(state.exchangeRate).toFixed(2);
     renderDatalists();
     renderQuickButtons();
+    renderCartItems();
     updateLiveTotal();
     renderCajaDebtSection();
     renderSalesTable();
@@ -533,7 +580,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   }
 
   // ==========================================================================
-  // 2. CAJA DIARIA + SECCIÓN PARA COBRAR AL CLIENTE CON DEUDA DETALLADA
+  // 2. CAJA DIARIA + SELECCIÓN MÚLTIPLE DE PRODUCTOS + COBRO DE DEUDAS
   // ==========================================================================
   function renderDatalists() {
     document.getElementById('datalist-products').innerHTML = state.products
@@ -545,46 +592,183 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       .join('');
   }
 
+  function addToCart(productName, unitPrice, addQty = 1) {
+    const cleanName = (productName || '').trim().toUpperCase();
+    if (!cleanName) return;
+    const price = round2(parseFloat(unitPrice) || 0);
+    const qty = round2(parseFloat(addQty) || 1);
+
+    const existing = cartItems.find(it => it.product.toUpperCase() === cleanName);
+    if (existing) {
+      existing.qty = round2(existing.qty + qty);
+      if (price > 0) existing.price = price;
+    } else {
+      cartItems.push({
+        id: `ci-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        product: cleanName,
+        qty,
+        price
+      });
+    }
+
+    renderQuickButtons();
+    renderCartItems();
+    updateLiveTotal();
+  }
+
   function renderQuickButtons() {
     const grid = document.getElementById('quick-products-grid');
     const quicks = state.products.filter(p => p.quick);
     grid.innerHTML = quicks
-      .map(
-        p => `
-      <button type="button" class="q-btn" data-name="${esc(p.name)}" data-price="${p.price}">
-        <strong>${esc(p.name)}</strong>
+      .map(p => {
+        const inCart = cartItems.find(it => it.product.toUpperCase() === (p.name || '').toUpperCase());
+        return `
+      <button type="button" class="q-btn ${inCart ? 'in-cart' : ''}" data-name="${esc(p.name)}" data-price="${p.price}">
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <strong>${esc(p.name)}</strong>
+          ${inCart ? `<span class="q-cart-badge">x${inCart.qty}</span>` : ''}
+        </div>
         <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
           <span>$${fmt(p.price, 2)}</span>
           <small style="font-size:11px; color:var(--muted);">Stock: ${p.stock ?? 0}</small>
         </div>
       </button>
-    `
-      )
+    `;
+      })
       .join('');
 
     grid.querySelectorAll('.q-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const name = btn.getAttribute('data-name');
         const price = parseFloat(btn.getAttribute('data-price')) || 0;
-        const pInput = document.getElementById('entry-product');
-        const qInput = document.getElementById('entry-qty');
+        addToCart(name, price, 1);
+      });
+    });
+  }
 
-        if (pInput.value === name) {
-          qInput.value = (parseFloat(qInput.value) || 1) + 1;
+  function renderCartItems() {
+    const box = document.getElementById('cart-items-box');
+    const clearBtn = document.getElementById('btn-clear-cart');
+    const countLbl = document.getElementById('cart-count-label');
+    const tbody = document.getElementById('cart-items-tbody');
+    if (!box || !tbody) return;
+
+    if (!cartItems.length) {
+      box.classList.add('hidden');
+      if (clearBtn) clearBtn.classList.add('hidden');
+      return;
+    }
+
+    box.classList.remove('hidden');
+    if (clearBtn) clearBtn.classList.remove('hidden');
+    const totalUnits = cartItems.reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
+    if (countLbl) countLbl.textContent = `${cartItems.length} productos • ${totalUnits} unds`;
+
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    tbody.innerHTML = cartItems
+      .map(it => {
+        const subUsd = round2((Number(it.qty) || 0) * (Number(it.price) || 0));
+        const subBs = round2(subUsd * rate);
+        return `
+        <tr>
+          <td style="text-align:left;"><strong>${esc(it.product)}</strong></td>
+          <td>
+            <div class="inline-stock-wrap">
+              <button type="button" class="stock-step-btn cart-qty-minus" data-id="${it.id}">-</button>
+              <input type="number" step="any" min="0.1" class="inline-stock-input cart-qty-inp" data-id="${it.id}" value="${it.qty}">
+              <button type="button" class="stock-step-btn cart-qty-plus" data-id="${it.id}">+</button>
+            </div>
+          </td>
+          <td>
+            <input type="number" step="0.01" min="0" class="inline-price-input cart-price-inp" data-id="${it.id}" value="${Number(it.price).toFixed(2)}">
+          </td>
+          <td><strong class="text-gold">$${fmt(subUsd, 2)}</strong></td>
+          <td><strong>${fmt(subBs, 2)} Bs</strong></td>
+          <td>
+            <button type="button" class="mini-btn cart-remove-btn" data-id="${it.id}" title="Quitar de la lista">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+      })
+      .join('');
+
+    tbody.querySelectorAll('.cart-qty-minus').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-id');
+        const item = cartItems.find(x => x.id === id);
+        if (!item) return;
+        if (item.qty <= 1) {
+          cartItems = cartItems.filter(x => x.id !== id);
         } else {
-          pInput.value = name;
-          qInput.value = 1;
-          document.getElementById('entry-price').value = price.toFixed(2);
+          item.qty = round2(item.qty - 1);
         }
+        renderQuickButtons();
+        renderCartItems();
+        updateLiveTotal();
+      });
+    });
+
+    tbody.querySelectorAll('.cart-qty-plus').forEach(b => {
+      b.addEventListener('click', () => {
+        const id = b.getAttribute('data-id');
+        const item = cartItems.find(x => x.id === id);
+        if (item) {
+          item.qty = round2(item.qty + 1);
+          renderQuickButtons();
+          renderCartItems();
+          updateLiveTotal();
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.cart-qty-inp').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const item = cartItems.find(x => x.id === inp.getAttribute('data-id'));
+        const v = parseFloat(inp.value);
+        if (item && v > 0) {
+          item.qty = round2(v);
+          renderQuickButtons();
+          renderCartItems();
+          updateLiveTotal();
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.cart-price-inp').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const item = cartItems.find(x => x.id === inp.getAttribute('data-id'));
+        const v = parseFloat(inp.value);
+        if (item && !isNaN(v) && v >= 0) {
+          item.price = round2(v);
+          renderCartItems();
+          updateLiveTotal();
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.cart-remove-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        cartItems = cartItems.filter(x => x.id !== b.getAttribute('data-id'));
+        renderQuickButtons();
+        renderCartItems();
         updateLiveTotal();
       });
     });
   }
 
   function updateLiveTotal() {
-    const qty = parseFloat(document.getElementById('entry-qty').value) || 0;
-    const price = parseFloat(document.getElementById('entry-price').value) || 0;
-    const totalUsd = round2(qty * price);
+    const manualProd = (document.getElementById('entry-product')?.value || '').trim();
+    const manualQty = parseFloat(document.getElementById('entry-qty')?.value) || 0;
+    const manualPrice = parseFloat(document.getElementById('entry-price')?.value) || 0;
+    const manualUsd = manualProd ? round2(manualQty * manualPrice) : 0;
+
+    const cartUsd = round2(
+      cartItems.reduce((acc, it) => acc + round2((Number(it.qty) || 0) * (Number(it.price) || 0)), 0)
+    );
+
+    const totalUsd = round2(cartUsd + manualUsd);
     const rate = parseFloat(state.exchangeRate) || 1;
     const totalBs = round2(totalUsd * rate);
 
@@ -1791,6 +1975,38 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       }
     });
 
+    // Botón "+ AGREGAR OTRO" para sumar productos manuales a la lista del cliente
+    document.getElementById('btn-add-to-cart')?.addEventListener('click', () => {
+      const prodInp = document.getElementById('entry-product');
+      const qtyInp = document.getElementById('entry-qty');
+      const priceInp = document.getElementById('entry-price');
+      const name = prodInp.value.trim().toUpperCase();
+      if (!name) {
+        toast('Escribe o selecciona primero un producto para agregarlo');
+        prodInp.focus();
+        return;
+      }
+      const qty = parseFloat(qtyInp.value) || 1;
+      let price = parseFloat(priceInp.value);
+      if (isNaN(price) || price <= 0) {
+        const found = state.products.find(p => p.name.toUpperCase() === name);
+        price = found ? Number(found.price) : 0;
+      }
+      addToCart(name, price, qty);
+      prodInp.value = '';
+      qtyInp.value = 1;
+      priceInp.value = '';
+      updateLiveTotal();
+      prodInp.focus();
+    });
+
+    document.getElementById('btn-clear-cart')?.addEventListener('click', () => {
+      cartItems = [];
+      renderQuickButtons();
+      renderCartItems();
+      updateLiveTotal();
+    });
+
     // Cantidad + / -
     document.getElementById('qty-minus').addEventListener('click', () => {
       const inp = document.getElementById('entry-qty');
@@ -1815,20 +2031,45 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
     });
 
-    // Registrar Venta en 1 Clic (Y descontar del Stock + Guardar detalle si es Fiado)
+    // Registrar Venta o Pedido Múltiple Completo (1 o varios productos para el cliente)
     document.getElementById('sale-form').addEventListener('submit', e => {
       e.preventDefault();
-      const product = document.getElementById('entry-product').value.trim().toUpperCase();
-      const qty = parseFloat(document.getElementById('entry-qty').value) || 1;
-      const price = parseFloat(document.getElementById('entry-price').value) || 0;
-      const totalUsd = round2(qty * price);
+
+      // Si el usuario también escribió un producto en la casilla manual, incluirlo junto con los seleccionados
+      const manualProduct = document.getElementById('entry-product').value.trim().toUpperCase();
+      const manualQty = parseFloat(document.getElementById('entry-qty').value) || 1;
+      let manualPrice = parseFloat(document.getElementById('entry-price').value);
+      if (manualProduct && (isNaN(manualPrice) || manualPrice < 0)) {
+        const found = state.products.find(p => p.name.toUpperCase() === manualProduct);
+        manualPrice = found ? Number(found.price) : 0;
+      }
+
+      const itemsToRegister = [...cartItems];
+      if (manualProduct) {
+        const existing = itemsToRegister.find(it => it.product.toUpperCase() === manualProduct);
+        if (existing) {
+          existing.qty = round2(existing.qty + manualQty);
+        } else {
+          itemsToRegister.push({
+            id: `ci-${Date.now()}`,
+            product: manualProduct,
+            qty: manualQty,
+            price: round2(manualPrice || 0)
+          });
+        }
+      }
+
+      if (!itemsToRegister.length) {
+        toast('Toca uno o varios productos rápidos o escribe un producto para registrar la venta');
+        return;
+      }
+
       const rate = parseFloat(state.exchangeRate) || 1000;
-      const totalBs = round2(totalUsd * rate);
       let client = document.getElementById('entry-client').value.trim().toUpperCase();
       const highlight = document.getElementById('entry-highlight').checked || state.payMethod === 'pendiente';
 
       if (state.payMethod === 'pendiente' && !client) {
-        const asked = prompt('Esta venta es FIADA / PENDIENTE. Escribe el nombre del cliente para anotar lo que debe:');
+        const asked = prompt('Esta cuenta es FIADA / PENDIENTE. Escribe el nombre del cliente para anotar todo lo que lleva:');
         if (!asked || !asked.trim()) {
           toast('Debes indicar el nombre del cliente para registrar un fiado');
           return;
@@ -1837,70 +2078,92 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       }
 
       const nowTime = new Date().toLocaleString('es-VE', { dateStyle: 'short', timeStyle: 'short' });
-      const saleId = `s-${Date.now()}`;
+      const orderTotalUsd = round2(
+        itemsToRegister.reduce((acc, it) => acc + round2((Number(it.qty) || 1) * (Number(it.price) || 0)), 0)
+      );
+      const orderTotalBs = round2(orderTotalUsd * rate);
 
-      const sale = {
-        id: saleId,
-        hora: nowTime,
-        product,
-        qty,
-        price,
-        totalUsd,
-        totalConsumoUsd: totalUsd,
-        pagoMovilBs: state.payMethod === 'pagomovil' ? totalBs : 0,
-        divisasUsd: state.payMethod === 'divisas' ? totalUsd : 0,
-        efectivoBs: state.payMethod === 'efectivobs' ? totalBs : 0,
-        puntoBs: state.payMethod === 'punto' ? totalBs : 0,
-        zelleUsd: state.payMethod === 'zelle' ? totalUsd : 0,
-        client,
-        pendienteUsd: state.payMethod === 'pendiente' ? totalUsd : 0,
-        abonadoUsd: 0,
-        highlight
-      };
-
-      state.dailySales.unshift(sale);
-
-      // Descontar automáticamente del stock si el producto existe en inventario
-      const invItem = state.products.find(p => p.name.toUpperCase() === product);
-      let remainingText = '';
-      if (invItem) {
-        invItem.stock = Math.max(0, round2((Number(invItem.stock) || 0) - qty));
-        remainingText = ` • Quedan ${invItem.stock} en Stock`;
-      }
-
-      // Si es fiado/pendiente, sumarlo a la deuda del cliente y guardar el producto detallado
+      // Si es fiado/pendiente, preparar el cliente para agregarle cada producto detallado
+      let clientObj = null;
       if (state.payMethod === 'pendiente' && client) {
-        let c = state.clients.find(x => x.name.toUpperCase() === client);
-        if (!c) {
-          c = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE', itemsPendientes: [] };
-          state.clients.unshift(c);
+        clientObj = state.clients.find(x => x.name.toUpperCase() === client);
+        if (!clientObj) {
+          clientObj = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE', itemsPendientes: [] };
+          state.clients.unshift(clientObj);
         }
-        if (!Array.isArray(c.itemsPendientes)) c.itemsPendientes = [];
-        c.deuda = round2((Number(c.deuda) || 0) + totalUsd);
-        c.itemsPendientes.push({
-          id: `it-${saleId}`,
-          date: nowTime,
-          product,
-          qty,
-          price,
-          totalUsd
-        });
+        if (!Array.isArray(clientObj.itemsPendientes)) clientObj.itemsPendientes = [];
       }
 
+      // Registrar cada producto del pedido (en orden para que queden juntos en la hoja diaria)
+      [...itemsToRegister].reverse().forEach((it, idx) => {
+        const isFirstRow = idx === itemsToRegister.length - 1;
+        const itemUsd = round2((Number(it.qty) || 1) * (Number(it.price) || 0));
+        const itemBs = round2(itemUsd * rate);
+        const saleId = `s-${Date.now()}-${idx}`;
+
+        const sale = {
+          id: saleId,
+          hora: nowTime,
+          product: it.product,
+          qty: it.qty,
+          price: it.price,
+          totalUsd: itemUsd,
+          totalConsumoUsd: isFirstRow ? orderTotalUsd : itemUsd,
+          pagoMovilBs: state.payMethod === 'pagomovil' ? itemBs : 0,
+          divisasUsd: state.payMethod === 'divisas' ? itemUsd : 0,
+          efectivoBs: state.payMethod === 'efectivobs' ? itemBs : 0,
+          puntoBs: state.payMethod === 'punto' ? itemBs : 0,
+          zelleUsd: state.payMethod === 'zelle' ? itemUsd : 0,
+          client,
+          pendienteUsd: state.payMethod === 'pendiente' ? itemUsd : 0,
+          abonadoUsd: 0,
+          highlight
+        };
+
+        state.dailySales.unshift(sale);
+
+        // Descontar automáticamente del stock si el producto existe en inventario
+        const invItem = state.products.find(p => p.name.toUpperCase() === it.product.toUpperCase());
+        if (invItem) {
+          invItem.stock = Math.max(0, round2((Number(invItem.stock) || 0) - (Number(it.qty) || 1)));
+        }
+
+        // Si es fiado/pendiente, guardar cada producto individual en el detalle de deuda del cliente
+        if (clientObj) {
+          clientObj.deuda = round2((Number(clientObj.deuda) || 0) + itemUsd);
+          clientObj.itemsPendientes.push({
+            id: `it-${saleId}`,
+            date: nowTime,
+            product: it.product,
+            qty: it.qty,
+            price: it.price,
+            totalUsd: itemUsd
+          });
+        }
+      });
+
+      // Limpiar carrito y formulario
+      cartItems = [];
       saveState();
       document.getElementById('entry-product').value = '';
       document.getElementById('entry-qty').value = 1;
       document.getElementById('entry-price').value = '';
       document.getElementById('entry-client').value = '';
-      updateLiveTotal();
       renderQuickButtons();
+      renderCartItems();
+      updateLiveTotal();
       renderDatalists();
       renderCajaDebtSection();
       renderSalesTable();
       renderClientsView();
       renderInventoryView();
       renderReportsView();
-      toast(`Registrado: ${qty}x ${product} ($${fmt(totalUsd, 2)} / ${fmt(totalBs, 2)} Bs)${remainingText}`);
+
+      toast(
+        itemsToRegister.length > 1
+          ? `¡Pedido de ${itemsToRegister.length} productos registrado! Total: $${fmt(orderTotalUsd, 2)} (${fmt(orderTotalBs, 2)} Bs)`
+          : `Registrado: ${itemsToRegister[0].qty}x ${itemsToRegister[0].product} ($${fmt(orderTotalUsd, 2)} / ${fmt(orderTotalBs, 2)} Bs)`
+      );
     });
 
     // Eventos de la Sección en Caja: Cobrar a Cliente con Deuda Detallada
@@ -2153,18 +2416,21 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       reader.readAsText(file);
     });
 
+    document.getElementById('topbar-download-app-btn')?.addEventListener('click', () => {
+      downloadStandaloneOfflineSystem();
+    });
+
+    document.getElementById('btn-download-live-offline-app')?.addEventListener('click', () => {
+      downloadStandaloneOfflineSystem();
+    });
+
     document.getElementById('btn-install-desktop-pwa')?.addEventListener('click', async () => {
       if (deferredInstallPrompt) {
         deferredInstallPrompt.prompt();
         await deferredInstallPrompt.userChoice;
         deferredInstallPrompt = null;
       } else {
-        alert(
-          'Para instalar Bodegón Ato\'z como programa en tu Escritorio de Windows:\n\n' +
-          '1. En la barra superior derecha de Chrome o Edge, haz clic en el ícono de Computadora con una flecha (Instalar aplicación).\n' +
-          '2. O abre el menú de los 3 puntos (⋮) -> "Guardar y compartir" -> "Instalar Bodegón Ato\'z".\n\n' +
-          '¡El sistema quedará en tu Escritorio y barra de tareas y funcionará 100% sin internet!'
-        );
+        downloadStandaloneOfflineSystem();
       }
     });
 
@@ -2183,6 +2449,82 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       renderCashiersView();
       toast('Cajero creado con éxito');
     });
+  }
+
+  // Descarga el sistema completo desde internet en 1 solo archivo local con TODOS los datos actuales guardados adentro
+  async function downloadStandaloneOfflineSystem() {
+    toast('Preparando descarga del Sistema Local con todos tus datos...');
+    try {
+      let htmlDoc = document.documentElement.outerHTML;
+      let cssText = '';
+      let appJsText = '';
+      let logoDataUrl = 'logo.png';
+
+      try {
+        const cssRes = await fetch('styles.css');
+        if (cssRes.ok) cssText = await cssRes.text();
+      } catch (e) {}
+
+      try {
+        const jsRes = await fetch('app.js');
+        if (jsRes.ok) appJsText = await jsRes.text();
+      } catch (e) {}
+
+      try {
+        const logoRes = await fetch('logo.png');
+        if (logoRes.ok) {
+          const blob = await logoRes.blob();
+          logoDataUrl = await new Promise(resolve => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result);
+            r.readAsDataURL(blob);
+          });
+        }
+      } catch (e) {}
+
+      const liveDataSnapshot = {
+        defaultExchangeRate: state.exchangeRate,
+        products: state.products,
+        clients: state.clients,
+        dailySales: state.dailySales,
+        closures: state.closures,
+        users: state.users
+      };
+
+      const bootstrapScript = `
+window.ATOZ_INITIAL_DATA = ${JSON.stringify(liveDataSnapshot)};
+try {
+  localStorage.setItem('${STORAGE_KEY}', JSON.stringify(${JSON.stringify(state)}));
+} catch (e) {}
+`;
+
+      let finalHtml = '<!DOCTYPE html>\n<html lang="es">\n' + document.head.outerHTML + '\n' + document.body.outerHTML + '\n</html>';
+
+      if (logoDataUrl.startsWith('data:')) {
+        finalHtml = finalHtml.replace(/href="logo\.png"/g, `href="${logoDataUrl}"`).replace(/src="logo\.png"/g, `src="${logoDataUrl}"`);
+      }
+      if (cssText) {
+        finalHtml = finalHtml.replace('<link rel="stylesheet" href="styles.css">', `<style>\n${cssText}\n</style>`);
+      }
+      if (appJsText) {
+        finalHtml = finalHtml
+          .replace('<script src="data.js"></script>', `<script>\n${bootstrapScript}\n</script>`)
+          .replace('<script src="app.js"></script>', `<script>\n${appJsText}\n</script>`);
+      } else {
+        // Si ya estaba ejecutándose desde el archivo local autocontenido, actualizar el snapshot interno
+        finalHtml = finalHtml.replace(/window\.ATOZ_INITIAL_DATA\s*=\s*\{[\s\S]*?\};/, bootstrapScript);
+      }
+
+      const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Bodegon_Atoz_Sistema_Local.html';
+      a.click();
+      toast('¡Sistema Local descargado con todas tus ventas, inventario y clientes guardados!');
+    } catch (err) {
+      console.error(err);
+      window.location.href = 'Bodegon_Atoz_App_Local.html';
+    }
   }
 
   // ==========================================================================
