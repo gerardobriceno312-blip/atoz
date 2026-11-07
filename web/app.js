@@ -94,6 +94,87 @@
     });
 
     renderAll();
+    fetchLiveExchangeRates(false);
+  }
+
+  // ==========================================================================
+  // 1B. ACTUALIZACIÓN AUTOMÁTICA DE TASA DEL DÍA POR API (BCV / PARALELO)
+  // ==========================================================================
+  let liveRates = { bcv: null, paralelo: null };
+
+  async function fetchLiveExchangeRates(showNotification = true) {
+    const icon = document.getElementById('sync-rate-icon');
+    if (icon) icon.classList.add('spin');
+
+    try {
+      // API Principal: DolarApi Venezuela (BCV Oficial y Paralelo en tiempo real)
+      const res = await fetch('https://ve.dolarapi.com/v1/dolares');
+      if (!res.ok) throw new Error('Error consultando DolarApi');
+      const data = await res.json();
+
+      const oficialObj = Array.isArray(data) ? data.find(d => d.fuente === 'oficial') : null;
+      const paraleloObj = Array.isArray(data) ? data.find(d => d.fuente === 'paralelo') : null;
+
+      if (oficialObj && oficialObj.promedio > 0) {
+        liveRates.bcv = round2(oficialObj.promedio);
+        document.getElementById('lbl-rate-bcv').textContent = liveRates.bcv.toFixed(2);
+      }
+      if (paraleloObj && paraleloObj.promedio > 0) {
+        liveRates.paralelo = round2(paraleloObj.promedio);
+        document.getElementById('lbl-rate-par').textContent = liveRates.paralelo.toFixed(2);
+      }
+
+      // Si el usuario tenía seleccionado BCV o Paralelo, actualizar automáticamente la tasa activa
+      if (state.rateSource === 'bcv' && liveRates.bcv) {
+        applyExchangeRate(liveRates.bcv, 'bcv', false);
+      } else if (state.rateSource === 'paralelo' && liveRates.paralelo) {
+        applyExchangeRate(liveRates.paralelo, 'paralelo', false);
+      } else {
+        updateRatePillsUI();
+      }
+
+      if (showNotification) {
+        toast(`Tasas actualizadas por API — BCV: ${liveRates.bcv || '--'} Bs | Paralelo: ${liveRates.paralelo || '--'} Bs`);
+      }
+    } catch (err) {
+      // Fallback API internacional en caso de fallo de red
+      try {
+        const fallbackRes = await fetch('https://open.er-api.com/v6/latest/USD');
+        const fbData = await fallbackRes.json();
+        if (fbData && fbData.rates && fbData.rates.VES) {
+          liveRates.bcv = round2(fbData.rates.VES);
+          document.getElementById('lbl-rate-bcv').textContent = liveRates.bcv.toFixed(2);
+          if (showNotification) toast(`Tasa BCV actualizada por API: ${liveRates.bcv} Bs/$`);
+        }
+      } catch (e2) {
+        if (showNotification) toast('No se pudo conectar a la API de tasas en este momento');
+      }
+    } finally {
+      if (icon) icon.classList.remove('spin');
+    }
+  }
+
+  function applyExchangeRate(newRate, source, notify = true) {
+    if (!newRate || newRate <= 0) return;
+    state.exchangeRate = round2(newRate);
+    state.rateSource = source;
+    document.getElementById('global-rate-input').value = state.exchangeRate;
+    updateRatePillsUI();
+    saveState();
+    updateLiveTotal();
+    renderInventoryView();
+    renderReportsView();
+    if (notify) {
+      const label = source === 'bcv' ? 'BCV Oficial' : source === 'paralelo' ? 'Paralelo' : 'Manual';
+      toast(`Tasa activa cambiada a ${label}: ${state.exchangeRate} Bs/$`);
+    }
+  }
+
+  function updateRatePillsUI() {
+    const bcvBtn = document.getElementById('btn-rate-bcv');
+    const parBtn = document.getElementById('btn-rate-par');
+    if (bcvBtn) bcvBtn.classList.toggle('active', state.rateSource === 'bcv');
+    if (parBtn) parBtn.classList.toggle('active', state.rateSource === 'paralelo');
   }
 
   function renderAll() {
@@ -1011,16 +1092,40 @@
       });
     });
 
-    // Tasa del Día
+    // Tasa del Día (Manual + Botones API BCV / Paralelo / Sync)
     document.getElementById('global-rate-input').addEventListener('input', e => {
       const r = parseFloat(e.target.value);
       if (r > 0) {
         state.exchangeRate = r;
+        state.rateSource = 'manual';
+        updateRatePillsUI();
         saveState();
         updateLiveTotal();
         renderInventoryView();
         renderReportsView();
       }
+    });
+
+    document.getElementById('btn-rate-bcv').addEventListener('click', async () => {
+      if (!liveRates.bcv) await fetchLiveExchangeRates(false);
+      if (liveRates.bcv) {
+        applyExchangeRate(liveRates.bcv, 'bcv', true);
+      } else {
+        toast('Consultando tasa BCV...');
+      }
+    });
+
+    document.getElementById('btn-rate-par').addEventListener('click', async () => {
+      if (!liveRates.paralelo) await fetchLiveExchangeRates(false);
+      if (liveRates.paralelo) {
+        applyExchangeRate(liveRates.paralelo, 'paralelo', true);
+      } else {
+        toast('Consultando tasa Paralelo...');
+      }
+    });
+
+    document.getElementById('btn-sync-rate').addEventListener('click', () => {
+      fetchLiveExchangeRates(true);
     });
 
     // Autocompletar precio al escribir producto

@@ -81,11 +81,24 @@
         </button>
       </nav>
 
-      <!-- TASA DEL DÍA Y SALIR -->
+      <!-- TASA DEL DÍA CON API EN VIVO Y SALIR -->
       <div class="topbar-right">
-        <div class="tasa-box">
-          <span>TASA (Bs/$):</span>
-          <input type="number" id="global-rate-input" value="1000" step="any">
+        <div class="tasa-widget">
+          <div class="tasa-api-pills">
+            <button type="button" id="btn-rate-bcv" class="rate-pill" title="Usar Tasa Oficial BCV en vivo">
+              BCV: <strong id="lbl-rate-bcv">--</strong>
+            </button>
+            <button type="button" id="btn-rate-par" class="rate-pill" title="Usar Tasa Paralelo en vivo">
+              PAR: <strong id="lbl-rate-par">--</strong>
+            </button>
+            <button type="button" id="btn-sync-rate" class="rate-sync-btn" title="Actualizar tasas desde la API ahora">
+              <i class="fa-solid fa-arrows-rotate" id="sync-rate-icon"></i>
+            </button>
+          </div>
+          <div class="tasa-box">
+            <span>TASA ACTIVA:</span>
+            <input type="number" id="global-rate-input" value="1000" step="any">
+          </div>
         </div>
         <button id="logout-btn" class="btn-salir" title="Cerrar Sesión">
           <i class="fa-solid fa-right-from-bracket"></i> Salir
