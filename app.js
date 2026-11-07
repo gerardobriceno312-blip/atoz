@@ -209,7 +209,10 @@
         p => `
       <button type="button" class="q-btn" data-name="${esc(p.name)}" data-price="${p.price}">
         <strong>${esc(p.name)}</strong>
-        <span>$${Number(p.price).toFixed(2)}</span>
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
+          <span>$${Number(p.price).toFixed(2)}</span>
+          <small style="font-size:11px; color:var(--muted);">Stock: ${p.stock ?? 0}</small>
+        </div>
       </button>
     `
       )
@@ -331,11 +334,23 @@
 
     tbody.querySelectorAll('.btn-del').forEach(b => {
       b.addEventListener('click', () => {
-        state.dailySales = state.dailySales.filter(x => x.id !== b.getAttribute('data-id'));
+        const saleId = b.getAttribute('data-id');
+        const deletedSale = state.dailySales.find(x => x.id === saleId);
+        if (deletedSale) {
+          const invItem = state.products.find(p => p.name.toUpperCase() === (deletedSale.product || '').toUpperCase());
+          if (invItem) {
+            invItem.stock = round2((Number(invItem.stock) || 0) + (Number(deletedSale.qty) || 1));
+          }
+        }
+        state.dailySales = state.dailySales.filter(x => x.id !== saleId);
         saveState();
+        renderQuickButtons();
+        renderDatalists();
         renderSalesTable();
+        renderInventoryView();
         renderCierreView();
         renderReportsView();
+        toast('Venta eliminada y stock restaurado al inventario');
       });
     });
   }
@@ -1179,8 +1194,10 @@
 
       // Descontar automáticamente del stock si el producto existe en inventario
       const invItem = state.products.find(p => p.name.toUpperCase() === product);
-      if (invItem && typeof invItem.stock === 'number') {
-        invItem.stock = Math.max(0, round2(invItem.stock - qty));
+      let remainingText = '';
+      if (invItem) {
+        invItem.stock = Math.max(0, round2((Number(invItem.stock) || 0) - qty));
+        remainingText = ` • Quedan ${invItem.stock} en Stock`;
       }
 
       // Si es fiado/pendiente y puso cliente, sumarlo a su deuda
@@ -1199,11 +1216,13 @@
       document.getElementById('entry-price').value = '';
       document.getElementById('entry-client').value = '';
       updateLiveTotal();
+      renderQuickButtons();
+      renderDatalists();
       renderSalesTable();
       renderClientsView();
       renderInventoryView();
       renderReportsView();
-      toast(`Registrado: ${qty}x ${product} ($${totalUsd.toFixed(2)})`);
+      toast(`Registrado: ${qty}x ${product} ($${totalUsd.toFixed(2)})${remainingText}`);
     });
 
     // Buscar y exportar en Hoja Diaria
