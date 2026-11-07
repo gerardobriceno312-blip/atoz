@@ -226,33 +226,39 @@
             <!-- PASO 3: CLIENTE + REGISTRAR -->
             <div class="sale-bottom-bar">
               <div class="client-optional-wrap">
-                <input type="text" id="entry-client" list="datalist-clients" placeholder="Nombre del Cliente (Opcional, o obligatorio si es Fiado)..." autocomplete="off">
+                <input type="text" id="entry-client" list="datalist-clients" placeholder="Nombre del Cliente (Escribe un cliente nuevo o existente)..." autocomplete="off">
                 <datalist id="datalist-clients"></datalist>
-                <label class="yellow-check">
+                <label class="yellow-check" title="Marca la venta como Cuenta Pendiente / Fiado en Amarillo">
                   <input type="checkbox" id="entry-highlight">
-                  <span>Resaltar en Amarillo</span>
+                  <span>Pendiente / Amarillo</span>
                 </label>
               </div>
 
-              <div class="submit-buttons-wrap">
+              <div class="submit-buttons-wrap" style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button type="button" id="btn-register-fiado-direct" class="btn-outline" style="border-color:var(--yellow-row); color:var(--yellow-row); background:rgba(255,230,0,0.12); padding:13px 18px; font-size:14.5px; font-weight:900;">
+                  <i class="fa-solid fa-user-clock"></i> ANOTAR A DEUDA DEL CLIENTE
+                </button>
                 <button type="submit" id="submit-sale-btn" class="btn-gold btn-register">
-                  <i class="fa-solid fa-check-double"></i> REGISTRAR VENTA / PEDIDO COMPLETO
+                  <i class="fa-solid fa-check-double"></i> REGISTRAR VENTA / PEDIDO
                 </button>
               </div>
             </div>
           </form>
         </div>
 
-        <!-- SECCIÓN B: COBRAR DEUDA A CLIENTE EN CAJA (CON DETALLE DE TODO LO QUE DEBE) -->
+        <!-- SECCIÓN B: COBRAR DEUDA A CLIENTE EN CAJA (CON BARRA DE BÚSQUEDA Y DETALLE DE TODO LO QUE DEBE) -->
         <div class="box debt-checkout-box" id="caja-cobrar-deuda-box">
           <div class="box-header">
             <div>
-              <h3><i class="fa-solid fa-hand-holding-dollar text-yellow"></i> Cobrar a Cliente con Deuda en Caja (Detalle de lo que Debe)</h3>
-              <span class="hint">Selecciona al cliente para ver exactamente qué productos o saldo debe y cobrarle total o parcialmente directo en caja</span>
+              <h3><i class="fa-solid fa-hand-holding-dollar text-yellow"></i> Cobrar a Cliente en Caja (Busca al Cliente y Ve Todo lo que Debe)</h3>
+              <span class="hint">Escribe el nombre del cliente en el buscador o elígelo de la lista para ver todos sus productos y cobrarle</span>
             </div>
-            <div class="debt-selector-bar">
-              <select id="caja-debt-client-select" class="debt-select">
-                <option value="">-- Seleccionar Cliente con Deuda Pendiente --</option>
+            <div class="debt-selector-bar" style="display:flex; gap:10px; flex-wrap:wrap; flex:1; max-width:680px;">
+              <div style="position:relative; flex:1; min-width:240px;">
+                <input type="text" id="caja-debt-search" placeholder="🔍 Buscar cliente por nombre para pagar..." autocomplete="off" class="debt-search-input">
+              </div>
+              <select id="caja-debt-client-select" class="debt-select" style="flex:1.2; min-width:260px;">
+                <option value="">-- Seleccionar Cliente --</option>
               </select>
             </div>
           </div>

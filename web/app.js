@@ -268,9 +268,50 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     safeSetStorage(STORAGE_KEY, JSON.stringify(state));
   }
 
-  // Garantiza que todos los clientes con deuda tengan el desglose detallado de lo que deben
+  // Garantiza que todos los clientes (incluyendo los recién agregados en la hoja de abajo) existan y tengan su detalle de productos
   function ensureClientsItemizedDebt() {
     if (!Array.isArray(state.clients)) state.clients = [];
+    if (!Array.isArray(state.dailySales)) state.dailySales = [];
+
+    // 1. Si hay ventas abajo en dailySales con nombre de cliente nuevo, asegurarse de que el cliente exista en state.clients
+    state.dailySales.forEach(s => {
+      const cname = (s.client || '').trim().toUpperCase();
+      if (!cname) return;
+      let c = state.clients.find(x => (x.name || '').trim().toUpperCase() === cname);
+      if (!c) {
+        c = {
+          id: `c-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: cname,
+          deuda: 0,
+          aFavor: 0,
+          note: 'CLIENTE CAJA',
+          itemsPendientes: []
+        };
+        state.clients.unshift(c);
+      }
+      // Si la fila de abajo está en amarillo o tiene pendienteUsd, asegurar que esté sumada en su deuda/itemsPendientes
+      const pendVal = Number(s.pendienteUsd) > 0 ? Number(s.pendienteUsd) : (s.highlight && Number(s.totalUsd) > 0 ? Number(s.totalUsd) : 0);
+      if (pendVal > 0) {
+        if (!Array.isArray(c.itemsPendientes)) c.itemsPendientes = [];
+        const itemId = `it-${s.id}`;
+        if (!c.itemsPendientes.some(it => it.id === itemId)) {
+          c.itemsPendientes.push({
+            id: itemId,
+            date: s.hora || 'Consumo Hoy',
+            product: s.product || 'PRODUCTO',
+            qty: Number(s.qty) || 1,
+            price: Number(s.price) || pendVal,
+            totalUsd: round2(pendVal)
+          });
+          const sumPend = round2(c.itemsPendientes.reduce((acc, it) => acc + (Number(it.totalUsd) || 0), 0));
+          if (sumPend > (Number(c.deuda) || 0)) {
+            c.deuda = sumPend;
+          }
+        }
+      }
+    });
+
+    // 2. Sincronizar itemsPendientes de cada cliente con deuda
     state.clients.forEach(c => {
       if (!Array.isArray(c.itemsPendientes)) {
         c.itemsPendientes = [];
@@ -281,14 +322,14 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         return;
       }
 
-      // Si no tiene items detallados cargados, buscar en las ventas pendientes o crear el detalle base
       if (c.itemsPendientes.length === 0) {
-        const clientSales = (state.dailySales || []).filter(
-          s => (s.client || '').toUpperCase() === (c.name || '').toUpperCase() && Number(s.pendienteUsd) > 0
+        const clientSales = state.dailySales.filter(
+          s => (s.client || '').toUpperCase() === (c.name || '').toUpperCase() && (Number(s.pendienteUsd) > 0 || s.highlight)
         );
         let sumItems = 0;
         clientSales.forEach(s => {
           const sub = round2(Number(s.pendienteUsd) || Number(s.totalUsd) || 0);
+          if (sub <= 0) return;
           sumItems = round2(sumItems + sub);
           c.itemsPendientes.push({
             id: `it-${s.id}`,
@@ -305,27 +346,24 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           c.itemsPendientes.unshift({
             id: `it-base-${c.id}`,
             date: 'Cuenta Acumulada',
-            product: c.note && c.note !== 'PENDIENTE' ? `CONSUMO PENDIENTE (${c.note})` : 'SALDO PENDIENTE DE CONSUMO EN BODEGÓN',
+            product: c.note && c.note !== 'PENDIENTE' && c.note !== 'CLIENTE CAJA' ? `CONSUMO PENDIENTE (${c.note})` : 'SALDO PENDIENTE DE CONSUMO EN BODEGÓN',
             qty: 1,
             price: diff,
             totalUsd: diff
           });
         }
       } else {
-        // Ajustar si hay diferencia entre la suma de items y la deuda total
         const sumItems = round2(c.itemsPendientes.reduce((acc, it) => acc + (Number(it.totalUsd) || 0), 0));
         const diff = round2(deudaActual - sumItems);
-        if (Math.abs(diff) > 0.02) {
-          if (diff > 0) {
-            c.itemsPendientes.push({
-              id: `it-adj-${Date.now()}`,
-              date: 'Saldo Pendiente',
-              product: 'AJUSTE / SALDO ACUMULADO',
-              qty: 1,
-              price: diff,
-              totalUsd: diff
-            });
-          }
+        if (Math.abs(diff) > 0.02 && diff > 0) {
+          c.itemsPendientes.push({
+            id: `it-adj-${Date.now()}`,
+            date: 'Saldo Pendiente',
+            product: 'AJUSTE / SALDO ACUMULADO',
+            qty: 1,
+            price: diff,
+            totalUsd: diff
+          });
         }
       }
     });
@@ -790,24 +828,85 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     document.getElementById('display-total-bs').textContent = `${fmt(totalBs, 2)} Bs`;
   }
 
-  // SECCIÓN EN CAJA: COBRAR A CLIENTE CON DEUDA Y VER DETALLE DE LO QUE DEBE
+  // Obtiene el saldo a pagar y los productos detallados de un cliente (tanto de su deuda como de las compras que tenga abajo en la hoja diaria)
+  function getClientPayableInfo(c) {
+    if (!c) return { amountUsd: 0, items: [], isFromDailySheetOnly: false };
+    const deudaUsd = round2(Number(c.deuda) || 0);
+    if (deudaUsd > 0) {
+      const items =
+        Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
+          ? c.itemsPendientes
+          : [
+              {
+                id: 'base',
+                date: 'Cuenta Pendiente',
+                product: 'SALDO PENDIENTE ACUMULADO',
+                qty: 1,
+                price: deudaUsd,
+                totalUsd: deudaUsd
+              }
+            ];
+      return { amountUsd: deudaUsd, items, isFromDailySheetOnly: false };
+    }
+
+    // Si no tiene deuda marcada como fiado pero tiene productos registrados abajo en la Hoja Diaria hoy:
+    const sheetRows = (state.dailySales || []).filter(
+      s => (s.client || '').trim().toUpperCase() === (c.name || '').trim().toUpperCase() && Number(s.totalUsd) > 0
+    );
+    if (sheetRows.length > 0) {
+      const sumSheet = round2(sheetRows.reduce((acc, s) => acc + (Number(s.totalUsd) || 0), 0));
+      const items = sheetRows.map(s => ({
+        id: `sh-${s.id}`,
+        saleId: s.id,
+        date: s.hora || 'Hoy en Hoja Diaria',
+        product: s.product,
+        qty: s.qty ?? 1,
+        price: s.price ?? s.totalUsd,
+        totalUsd: round2(Number(s.totalUsd) || 0)
+      }));
+      return { amountUsd: sumSheet, items, isFromDailySheetOnly: true };
+    }
+
+    return { amountUsd: 0, items: [], isFromDailySheetOnly: false };
+  }
+
+  // SECCIÓN EN CAJA: COBRAR A CLIENTE CON BARRA DE BÚSQUEDA Y VER DETALLE DE LO QUE DEBE
   function renderCajaDebtSection(preselectClientId = null) {
     const sel = document.getElementById('caja-debt-client-select');
     if (!sel) return;
+    ensureClientsItemizedDebt();
+
+    const searchInput = document.getElementById('caja-debt-search');
+    const query = (searchInput?.value || '').trim().toLowerCase();
     const currentVal = preselectClientId !== null ? preselectClientId : sel.value;
     const rate = parseFloat(state.exchangeRate) || 1000;
 
-    const debtors = state.clients
-      .filter(c => (Number(c.deuda) || 0) > 0)
-      .sort((a, b) => (Number(b.deuda) || 0) - (Number(a.deuda) || 0));
+    // Incluir clientes con deuda o con compras en la hoja de abajo (y si escribe en el buscador, buscar en todos los clientes)
+    const candidates = state.clients
+      .map(c => ({ client: c, info: getClientPayableInfo(c) }))
+      .filter(entry => {
+        const matchesQuery = !query || (entry.client.name || '').toLowerCase().includes(query);
+        if (!matchesQuery) return false;
+        if (query) return true; // Si está buscando por nombre, mostrar cualquier cliente que coincida
+        return entry.info.amountUsd > 0;
+      })
+      .sort((a, b) => b.info.amountUsd - a.info.amountUsd);
+
+    let activeId = currentVal;
+    if (query && candidates.length > 0) {
+      // Si el usuario está escribiendo en la barra de búsqueda, seleccionar automáticamente el primer cliente encontrado
+      if (!candidates.some(x => x.client.id === activeId)) {
+        activeId = candidates[0].client.id;
+      }
+    }
 
     sel.innerHTML =
-      `<option value="">-- Seleccionar Cliente con Deuda (${debtors.length} pendientes) --</option>` +
-      debtors
-        .map(
-          c =>
-            `<option value="${c.id}" ${c.id === currentVal ? 'selected' : ''}>${esc(c.name)} — Debe: $${fmt(c.deuda, 2)} (${fmt(round2(c.deuda * rate), 2)} Bs)</option>`
-        )
+      `<option value="">-- Seleccionar Cliente (${candidates.length} encontrados) --</option>` +
+      candidates
+        .map(({ client: c, info }) => {
+          const tag = info.isFromDailySheetOnly ? 'Compra en Hoja Hoy' : 'Debe';
+          return `<option value="${c.id}" ${c.id === activeId ? 'selected' : ''}>${esc(c.name)} — ${tag}: $${fmt(info.amountUsd, 2)} (${fmt(round2(info.amountUsd * rate), 2)} Bs)</option>`;
+        })
         .join('');
 
     renderSelectedCajaDebtClient(sel.value);
@@ -816,31 +915,36 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   function renderSelectedCajaDebtClient(clientId) {
     const panel = document.getElementById('caja-debt-detail-panel');
     if (!panel) return;
-    const c = state.clients.find(x => x.id === clientId && (Number(x.deuda) || 0) > 0);
+    const c = state.clients.find(x => x.id === clientId);
     if (!c) {
       panel.classList.add('hidden');
       return;
     }
 
+    const info = getClientPayableInfo(c);
     panel.classList.remove('hidden');
     const rate = parseFloat(state.exchangeRate) || 1000;
-    const totalDeudaUsd = round2(Number(c.deuda) || 0);
+    const totalDeudaUsd = round2(info.amountUsd);
     const totalDeudaBs = round2(totalDeudaUsd * rate);
 
     document.getElementById('debt-cli-name').textContent = c.name;
+    const badgeEl = document.getElementById('debt-cli-badge');
+    if (badgeEl) {
+      badgeEl.textContent = info.isFromDailySheetOnly ? 'COMPRA EN HOJA DIARIA' : totalDeudaUsd > 0 ? 'DEUDA PENDIENTE' : 'AL DÍA';
+    }
     document.getElementById('debt-total-usd').textContent = `$${fmt(totalDeudaUsd, 2)}`;
     document.getElementById('debt-total-bs').textContent = `${fmt(totalDeudaBs, 2)} Bs`;
 
-    const items = Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
-      ? c.itemsPendientes
+    const items = info.items.length
+      ? info.items
       : [
           {
-            id: 'base',
-            date: 'Cuenta Pendiente',
-            product: 'SALDO PENDIENTE ACUMULADO',
-            qty: 1,
-            price: totalDeudaUsd,
-            totalUsd: totalDeudaUsd
+            id: 'empty',
+            date: 'Hoy',
+            product: 'SIN PRODUCTOS PENDIENTES',
+            qty: 0,
+            price: 0,
+            totalUsd: 0
           }
         ];
 
@@ -863,7 +967,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       .join('');
 
     const payInput = document.getElementById('caja-debt-pay-usd');
-    payInput.value = totalDeudaUsd.toFixed(2);
+    payInput.value = totalDeudaUsd > 0 ? totalDeudaUsd.toFixed(2) : '';
     updateCajaDebtLiveBs();
   }
 
@@ -880,6 +984,39 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     const monto = round2(parseFloat(montoUsd) || 0);
     if (!c || monto <= 0) return;
 
+    const info = getClientPayableInfo(c);
+    const rate = parseFloat(state.exchangeRate) || 1000;
+    const exactBs = round2(monto * rate);
+
+    // Si el cliente tenía su compra registrada abajo en la hoja diaria pero no como deuda separada, actualizar su método de pago en las filas de abajo
+    if (info.isFromDailySheetOnly && (Number(c.deuda) || 0) <= 0) {
+      const sheetRows = state.dailySales.filter(
+        s => (s.client || '').trim().toUpperCase() === (c.name || '').trim().toUpperCase() && Number(s.totalUsd) > 0
+      );
+      sheetRows.forEach(s => {
+        const rowUsd = round2(Number(s.totalUsd) || 0);
+        const rowBs = round2(rowUsd * rate);
+        s.pagoMovilBs = metodoPago === 'pagomovil' ? rowBs : 0;
+        s.divisasUsd = metodoPago === 'divisas' ? rowUsd : 0;
+        s.efectivoBs = metodoPago === 'efectivobs' ? rowBs : 0;
+        s.puntoBs = metodoPago === 'punto' ? rowBs : 0;
+        s.zelleUsd = metodoPago === 'zelle' ? rowUsd : 0;
+        s.pendienteUsd = 0;
+        s.abonadoUsd = rowUsd;
+        s.highlight = false;
+      });
+      const searchInput = document.getElementById('caja-debt-search');
+      if (searchInput) searchInput.value = '';
+      saveState();
+      renderCajaDebtSection('');
+      renderSalesTable();
+      renderClientsView();
+      renderCierreView();
+      renderReportsView();
+      toast(`¡Pago de ${c.name} por $${fmt(monto, 2)} (${fmt(exactBs, 2)} Bs) registrado en la Hoja Diaria!`);
+      return;
+    }
+
     const deudaAnterior = round2(Number(c.deuda) || 0);
     const detalleResumen = (c.itemsPendientes || [])
       .map(i => `${i.qty || 1}x ${i.product}`)
@@ -891,6 +1028,13 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       if (c.deuda <= 0.009) {
         c.deuda = 0;
         c.itemsPendientes = [];
+        // Quitar resaltado amarillo de las filas de hoy de este cliente si ya pagó todo
+        state.dailySales.forEach(s => {
+          if ((s.client || '').trim().toUpperCase() === (c.name || '').trim().toUpperCase()) {
+            s.highlight = false;
+            s.pendienteUsd = 0;
+          }
+        });
       } else {
         c.itemsPendientes.push({
           id: `ab-${Date.now()}`,
@@ -907,9 +1051,6 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       c.itemsPendientes = [];
       c.aFavor = round2((Number(c.aFavor) || 0) + sobra);
     }
-
-    const rate = parseFloat(state.exchangeRate) || 1000;
-    const exactBs = round2(monto * rate);
 
     state.dailySales.unshift({
       id: `s-${Date.now()}`,
@@ -930,6 +1071,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       highlight: false
     });
 
+    const searchInput = document.getElementById('caja-debt-search');
+    if (searchInput && c.deuda <= 0) searchInput.value = '';
     saveState();
     renderCajaDebtSection(c.deuda > 0 ? c.id : '');
     renderSalesTable();
@@ -2050,6 +2193,25 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
     });
 
+    // Si marca "Pendiente / Amarillo", activar automáticamente FIADO / PENDIENTE
+    document.getElementById('entry-highlight')?.addEventListener('change', e => {
+      if (e.target.checked) {
+        state.payMethod = 'pendiente';
+        document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('.pay-btn[data-pay="pendiente"]')?.classList.add('active');
+      }
+    });
+
+    // Botón directo: "ANOTAR A DEUDA DEL CLIENTE"
+    document.getElementById('btn-register-fiado-direct')?.addEventListener('click', () => {
+      state.payMethod = 'pendiente';
+      document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector('.pay-btn[data-pay="pendiente"]')?.classList.add('active');
+      const hl = document.getElementById('entry-highlight');
+      if (hl) hl.checked = true;
+      document.getElementById('sale-form')?.requestSubmit();
+    });
+
     // Registrar Venta o Pedido Múltiple Completo (1 o varios productos para el cliente)
     document.getElementById('sale-form').addEventListener('submit', e => {
       e.preventDefault();
@@ -2085,9 +2247,10 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
       const rate = parseFloat(state.exchangeRate) || 1000;
       let client = document.getElementById('entry-client').value.trim().toUpperCase();
-      const highlight = document.getElementById('entry-highlight').checked || state.payMethod === 'pendiente';
+      const isPendiente = document.getElementById('entry-highlight').checked || state.payMethod === 'pendiente';
+      const highlight = isPendiente;
 
-      if (state.payMethod === 'pendiente' && !client) {
+      if (isPendiente && !client) {
         const asked = prompt('Esta cuenta es FIADA / PENDIENTE. Escribe el nombre del cliente para anotar todo lo que lleva:');
         if (!asked || !asked.trim()) {
           toast('Debes indicar el nombre del cliente para registrar un fiado');
@@ -2102,12 +2265,19 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       );
       const orderTotalBs = round2(orderTotalUsd * rate);
 
-      // Si es fiado/pendiente, preparar el cliente para agregarle cada producto detallado
+      // Siempre registrar o encontrar al cliente si escribió su nombre (nuevo o existente)
       let clientObj = null;
-      if (state.payMethod === 'pendiente' && client) {
+      if (client) {
         clientObj = state.clients.find(x => x.name.toUpperCase() === client);
         if (!clientObj) {
-          clientObj = { id: `c-${Date.now()}`, name: client, deuda: 0, aFavor: 0, note: 'PENDIENTE', itemsPendientes: [] };
+          clientObj = {
+            id: `c-${Date.now()}`,
+            name: client,
+            deuda: 0,
+            aFavor: 0,
+            note: isPendiente ? 'PENDIENTE' : 'CONSUMO EN CAJA',
+            itemsPendientes: []
+          };
           state.clients.unshift(clientObj);
         }
         if (!Array.isArray(clientObj.itemsPendientes)) clientObj.itemsPendientes = [];
@@ -2128,13 +2298,13 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           price: it.price,
           totalUsd: itemUsd,
           totalConsumoUsd: isFirstRow ? orderTotalUsd : itemUsd,
-          pagoMovilBs: state.payMethod === 'pagomovil' ? itemBs : 0,
-          divisasUsd: state.payMethod === 'divisas' ? itemUsd : 0,
-          efectivoBs: state.payMethod === 'efectivobs' ? itemBs : 0,
-          puntoBs: state.payMethod === 'punto' ? itemBs : 0,
-          zelleUsd: state.payMethod === 'zelle' ? itemUsd : 0,
+          pagoMovilBs: !isPendiente && state.payMethod === 'pagomovil' ? itemBs : 0,
+          divisasUsd: !isPendiente && state.payMethod === 'divisas' ? itemUsd : 0,
+          efectivoBs: !isPendiente && state.payMethod === 'efectivobs' ? itemBs : 0,
+          puntoBs: !isPendiente && state.payMethod === 'punto' ? itemBs : 0,
+          zelleUsd: !isPendiente && state.payMethod === 'zelle' ? itemUsd : 0,
           client,
-          pendienteUsd: state.payMethod === 'pendiente' ? itemUsd : 0,
+          pendienteUsd: isPendiente ? itemUsd : 0,
           abonadoUsd: 0,
           highlight
         };
@@ -2148,7 +2318,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         }
 
         // Si es fiado/pendiente, guardar cada producto individual en el detalle de deuda del cliente
-        if (clientObj) {
+        if (clientObj && isPendiente) {
           clientObj.deuda = round2((Number(clientObj.deuda) || 0) + itemUsd);
           clientObj.itemsPendientes.push({
             id: `it-${saleId}`,
@@ -2172,7 +2342,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       renderCartItems();
       updateLiveTotal();
       renderDatalists();
-      renderCajaDebtSection();
+      renderCajaDebtSection(clientObj ? clientObj.id : null);
       renderSalesTable();
       renderClientsView();
       renderInventoryView();
@@ -2185,7 +2355,11 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       );
     });
 
-    // Eventos de la Sección en Caja: Cobrar a Cliente con Deuda Detallada
+    // Eventos de la Sección en Caja: Cobrar a Cliente con Deuda Detallada + Barra de Búsqueda
+    document.getElementById('caja-debt-search')?.addEventListener('input', () => {
+      renderCajaDebtSection();
+    });
+
     document.getElementById('caja-debt-client-select')?.addEventListener('change', e => {
       renderSelectedCajaDebtClient(e.target.value);
     });
@@ -2196,7 +2370,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       const cid = document.getElementById('caja-debt-client-select').value;
       const c = state.clients.find(x => x.id === cid);
       if (c) {
-        document.getElementById('caja-debt-pay-usd').value = round2(c.deuda).toFixed(2);
+        const info = getClientPayableInfo(c);
+        document.getElementById('caja-debt-pay-usd').value = round2(info.payableUsd).toFixed(2);
         updateCajaDebtLiveBs();
       }
     });
