@@ -2384,14 +2384,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     });
 
     document.getElementById('btn-export-local-db')?.addEventListener('click', () => {
-      const jsonStr = JSON.stringify(state, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      const dateTag = new Date().toISOString().slice(0, 10);
-      a.download = `BaseDeDatos_Bodegon_Atoz_${dateTag}.json`;
-      a.click();
-      toast('Archivo de Base de Datos guardado en tu PC');
+      requestDownloadAuth(() => {
+        const jsonStr = JSON.stringify(state, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        const dateTag = new Date().toISOString().slice(0, 10);
+        a.download = `BaseDeDatos_Bodegon_Atoz_${dateTag}.json`;
+        a.click();
+        toast('Archivo de Base de Datos guardado en tu PC');
+      });
     });
 
     document.getElementById('inp-import-local-db')?.addEventListener('change', e => {
@@ -2417,20 +2419,63 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     });
 
     document.getElementById('topbar-download-app-btn')?.addEventListener('click', () => {
-      downloadStandaloneOfflineSystem();
+      requestDownloadAuth(() => {
+        downloadStandaloneOfflineSystem();
+      });
     });
 
     document.getElementById('btn-download-live-offline-app')?.addEventListener('click', () => {
-      downloadStandaloneOfflineSystem();
+      requestDownloadAuth(() => {
+        downloadStandaloneOfflineSystem();
+      });
     });
 
-    document.getElementById('btn-install-desktop-pwa')?.addEventListener('click', async () => {
-      if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        await deferredInstallPrompt.userChoice;
-        deferredInstallPrompt = null;
-      } else {
-        downloadStandaloneOfflineSystem();
+    document.getElementById('btn-download-win-zip')?.addEventListener('click', () => {
+      requestDownloadAuth(() => {
+        const a = document.createElement('a');
+        a.href = 'Bodegon_Atoz_Windows_Local.zip';
+        a.download = 'Bodegon_Atoz_Windows_Local.zip';
+        a.click();
+        toast('Descargando carpeta portátil para Windows (.ZIP)...');
+      });
+    });
+
+    document.getElementById('btn-install-desktop-pwa')?.addEventListener('click', () => {
+      requestDownloadAuth(async () => {
+        if (deferredInstallPrompt) {
+          deferredInstallPrompt.prompt();
+          await deferredInstallPrompt.userChoice;
+          deferredInstallPrompt = null;
+        } else {
+          downloadStandaloneOfflineSystem();
+        }
+      });
+    });
+
+    document.getElementById('close-download-auth-btn')?.addEventListener('click', () => {
+      document.getElementById('download-auth-modal')?.classList.add('hidden');
+    });
+
+    document.getElementById('download-auth-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const inp = document.getElementById('download-auth-input');
+      const err = document.getElementById('download-auth-error');
+      const code = (inp?.value || '').trim();
+      if (code !== '1756762') {
+        err?.classList.remove('hidden');
+        if (inp) {
+          inp.value = '';
+          inp.focus();
+        }
+        return;
+      }
+      err?.classList.add('hidden');
+      document.getElementById('download-auth-modal')?.classList.add('hidden');
+      if (inp) inp.value = '';
+      if (typeof pendingDownloadAction === 'function') {
+        const fn = pendingDownloadAction;
+        pendingDownloadAction = null;
+        fn();
       }
     });
 
@@ -2449,6 +2494,27 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       renderCashiersView();
       toast('Cajero creado con éxito');
     });
+  }
+
+  let pendingDownloadAction = null;
+  function requestDownloadAuth(callback) {
+    pendingDownloadAction = callback;
+    const modal = document.getElementById('download-auth-modal');
+    const inp = document.getElementById('download-auth-input');
+    const err = document.getElementById('download-auth-error');
+    if (err) err.classList.add('hidden');
+    if (inp) inp.value = '';
+    if (modal) {
+      modal.classList.remove('hidden');
+      setTimeout(() => inp?.focus(), 60);
+    } else {
+      const asked = prompt('Ingresa la clave de seguridad para autorizar la descarga:');
+      if ((asked || '').trim() === '1756762') {
+        callback();
+      } else if (asked !== null) {
+        toast('Clave incorrecta. No autorizado para descargar.');
+      }
+    }
   }
 
   // Descarga el sistema completo desde internet en 1 solo archivo local con TODOS los datos actuales guardados adentro
