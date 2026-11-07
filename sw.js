@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atoz-offline-v3';
+const CACHE_NAME = 'atoz-offline-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -26,6 +26,10 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  const url = event.request.url || '';
+  if (url.endsWith('.zip') || url.endsWith('.exe') || url.endsWith('.json')) {
+    return;
+  }
   event.respondWith(
     fetch(event.request)
       .then(res => {
@@ -36,4 +40,3 @@ self.addEventListener('fetch', event => {
       .catch(() => caches.match(event.request).then(cached => cached || caches.match('./index.html')))
   );
 });
-

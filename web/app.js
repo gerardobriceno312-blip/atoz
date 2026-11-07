@@ -211,14 +211,26 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     } catch (err) {}
   }
 
+  function safeGetStorage(k) {
+    try { return localStorage.getItem(k); } catch (e) { return null; }
+  }
+  function safeSetStorage(k, v) {
+    try { localStorage.setItem(k, v); } catch (e) {}
+  }
+  function safeRemoveStorage(k) {
+    try { localStorage.removeItem(k); } catch (e) {}
+  }
+
   function registerOfflineServiceWorker() {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
-    }
-    window.addEventListener('beforeinstallprompt', e => {
-      e.preventDefault();
-      deferredInstallPrompt = e;
-    });
+    try {
+      if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.protocol === 'http:')) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+      window.addEventListener('beforeinstallprompt', e => {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+      });
+    } catch (e) {}
   }
 
   function initSqlBox() {
@@ -227,17 +239,17 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   }
 
   function loadState() {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = safeGetStorage(STORAGE_KEY);
     const initial = window.ATOZ_INITIAL_DATA || {};
 
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         state = Object.assign({}, state, parsed);
-        if (!state.users || !state.users.some(u => u.username.toLowerCase() === 'dzara')) {
+        if (!Array.isArray(state.users) || !state.users.some(u => (u.username || '').toLowerCase() === 'dzara')) {
           state.users = [
             { id: 'u1', fullName: 'David Zara', username: 'dzara', password: 'dzara', role: 'ADMIN' },
-            ...(state.users || [])
+            ...(Array.isArray(state.users) ? state.users : [])
           ];
         }
         return;
@@ -251,7 +263,9 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     state.products = JSON.parse(JSON.stringify(initial.products || []));
     state.clients = JSON.parse(JSON.stringify(initial.clients || []));
     state.dailySales = JSON.parse(JSON.stringify(initial.dailySales || []));
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (Array.isArray(initial.closures)) state.closures = JSON.parse(JSON.stringify(initial.closures));
+    if (Array.isArray(initial.users) && initial.users.length) state.users = JSON.parse(JSON.stringify(initial.users));
+    safeSetStorage(STORAGE_KEY, JSON.stringify(state));
   }
 
   // Garantiza que todos los clientes con deuda tengan el desglose detallado de lo que deben
@@ -320,7 +334,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   function saveState(pushToCloud = true) {
     state.updatedAt = Date.now();
     ensureClientsItemizedDebt();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    safeSetStorage(STORAGE_KEY, JSON.stringify(state));
     saveToIndexedDB();
     if (pushToCloud) {
       if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
@@ -445,11 +459,11 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   }
 
   function checkSession() {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = safeGetStorage(SESSION_KEY);
     if (raw) {
       try {
         const u = JSON.parse(raw);
-        const valid = state.users.find(x => x.username.toLowerCase() === u.username.toLowerCase());
+        const valid = state.users.find(x => (x.username || '').toLowerCase() === (u.username || '').toLowerCase());
         if (valid) {
           currentUser = valid;
           openApp();
@@ -1899,25 +1913,30 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   // 9. EVENTOS GENERALES
   // ==========================================================================
   function bindEvents() {
-    // Login
+    // Login (acepta dzara/dzara y también la clave maestra 1756762)
     document.getElementById('login-form').addEventListener('submit', e => {
       e.preventDefault();
       const u = document.getElementById('login-username').value.trim();
       const p = document.getElementById('login-password').value.trim();
-      const found = state.users.find(x => x.username.toLowerCase() === u.toLowerCase() && x.password === p);
+      let found = (state.users || []).find(
+        x => (x.username || '').toLowerCase() === u.toLowerCase() && x.password === p
+      );
+      if (!found && ((u.toLowerCase() === 'dzara' && (p === 'dzara' || p === '1756762')) || p === '1756762')) {
+        found = { id: 'u1', fullName: 'David Zara', username: 'dzara', password: 'dzara', role: 'ADMIN' };
+      }
       if (!found) {
         document.getElementById('login-error').classList.remove('hidden');
         return;
       }
       document.getElementById('login-error').classList.add('hidden');
       currentUser = found;
-      localStorage.setItem(SESSION_KEY, JSON.stringify(found));
+      safeSetStorage(SESSION_KEY, JSON.stringify(found));
       openApp();
     });
 
     // Salir
     document.getElementById('logout-btn').addEventListener('click', () => {
-      localStorage.removeItem(SESSION_KEY);
+      safeRemoveStorage(SESSION_KEY);
       currentUser = null;
       checkSession();
     });
@@ -2432,11 +2451,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     document.getElementById('btn-download-win-zip')?.addEventListener('click', () => {
       requestDownloadAuth(() => {
-        const a = document.createElement('a');
-        a.href = 'Bodegon_Atoz_Windows_Local.zip';
-        a.download = 'Bodegon_Atoz_Windows_Local.zip';
-        a.click();
-        toast('Descargando carpeta portátil para Windows (.ZIP)...');
+        downloadStandaloneZipPackage();
       });
     });
 
@@ -2461,7 +2476,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       const inp = document.getElementById('download-auth-input');
       const err = document.getElementById('download-auth-error');
       const code = (inp?.value || '').trim();
-      if (code !== '1756762') {
+      if (code !== '1756762' && code.toLowerCase() !== 'dzara') {
         err?.classList.remove('hidden');
         if (inp) {
           inp.value = '';
@@ -2508,8 +2523,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       modal.classList.remove('hidden');
       setTimeout(() => inp?.focus(), 60);
     } else {
-      const asked = prompt('Ingresa la clave de seguridad para autorizar la descarga:');
-      if ((asked || '').trim() === '1756762') {
+      const asked = prompt('Ingresa la clave de seguridad para autorizar la descarga (1756762):');
+      if ((asked || '').trim() === '1756762' || (asked || '').trim().toLowerCase() === 'dzara') {
         callback();
       } else if (asked !== null) {
         toast('Clave incorrecta. No autorizado para descargar.');
@@ -2517,79 +2532,229 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     }
   }
 
+  // Construye el HTML 100% autocontenido con todos los datos actuales sin corromper símbolos '$'
+  async function buildStandaloneHtmlContent() {
+    let baseHtml = '';
+    let cssText = '';
+    let appJsText = '';
+    let logoDataUrl = '';
+
+    try {
+      const htmlRes = await fetch('index.html', { cache: 'no-store' });
+      if (htmlRes.ok) baseHtml = await htmlRes.text();
+    } catch (e) {}
+
+    try {
+      const cssRes = await fetch('styles.css', { cache: 'no-store' });
+      if (cssRes.ok) cssText = await cssRes.text();
+    } catch (e) {}
+
+    try {
+      const jsRes = await fetch('app.js', { cache: 'no-store' });
+      if (jsRes.ok) appJsText = await jsRes.text();
+    } catch (e) {}
+
+    try {
+      const logoRes = await fetch('logo.png');
+      if (logoRes.ok) {
+        const blob = await logoRes.blob();
+        logoDataUrl = await new Promise(resolve => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.readAsDataURL(blob);
+        });
+      }
+    } catch (e) {}
+
+    const liveDataSnapshot = {
+      defaultExchangeRate: state.exchangeRate,
+      products: state.products,
+      clients: state.clients,
+      dailySales: state.dailySales,
+      closures: state.closures,
+      users: state.users
+    };
+
+    const bootstrapScript =
+      'window.ATOZ_INITIAL_DATA = ' +
+      JSON.stringify(liveDataSnapshot) +
+      ';\ntry { localStorage.setItem(' +
+      JSON.stringify(STORAGE_KEY) +
+      ', JSON.stringify(' +
+      JSON.stringify(state) +
+      ')); } catch (e) {}\n';
+
+    if (!baseHtml) {
+      // Si ya estamos ejecutando desde un archivo local sin servidor
+      const clone = document.documentElement.cloneNode(true);
+      clone.querySelector('#login-screen')?.classList.remove('hidden');
+      clone.querySelector('#app-shell')?.classList.add('hidden');
+      clone.querySelector('#download-auth-modal')?.classList.add('hidden');
+      return '<!DOCTYPE html>\n' + clone.outerHTML;
+    }
+
+    let finalHtml = baseHtml;
+    if (logoDataUrl && logoDataUrl.startsWith('data:')) {
+      finalHtml = finalHtml
+        .replace(/href="logo\.png"/g, () => 'href="' + logoDataUrl + '"')
+        .replace(/src="logo\.png"/g, () => 'src="' + logoDataUrl + '"');
+      if (appJsText) {
+        appJsText = appJsText.replace(/src="logo\.png"/g, () => 'src="' + logoDataUrl + '"');
+      }
+    }
+    if (cssText) {
+      finalHtml = finalHtml.replace('<link rel="stylesheet" href="styles.css">', () => '<style>\n' + cssText + '\n</style>');
+    }
+    if (appJsText) {
+      finalHtml = finalHtml
+        .replace('<script src="data.js"></script>', () => '<script>\n' + bootstrapScript + '\n</script>')
+        .replace('<script src="app.js"></script>', () => '<script>\n' + appJsText + '\n</script>');
+    }
+    return finalHtml;
+  }
+
   // Descarga el sistema completo desde internet en 1 solo archivo local con TODOS los datos actuales guardados adentro
   async function downloadStandaloneOfflineSystem() {
-    toast('Preparando descarga del Sistema Local con todos tus datos...');
+    toast('Generando Sistema Local con todos tus datos...');
     try {
-      let htmlDoc = document.documentElement.outerHTML;
-      let cssText = '';
-      let appJsText = '';
-      let logoDataUrl = 'logo.png';
-
-      try {
-        const cssRes = await fetch('styles.css');
-        if (cssRes.ok) cssText = await cssRes.text();
-      } catch (e) {}
-
-      try {
-        const jsRes = await fetch('app.js');
-        if (jsRes.ok) appJsText = await jsRes.text();
-      } catch (e) {}
-
-      try {
-        const logoRes = await fetch('logo.png');
-        if (logoRes.ok) {
-          const blob = await logoRes.blob();
-          logoDataUrl = await new Promise(resolve => {
-            const r = new FileReader();
-            r.onload = () => resolve(r.result);
-            r.readAsDataURL(blob);
-          });
-        }
-      } catch (e) {}
-
-      const liveDataSnapshot = {
-        defaultExchangeRate: state.exchangeRate,
-        products: state.products,
-        clients: state.clients,
-        dailySales: state.dailySales,
-        closures: state.closures,
-        users: state.users
-      };
-
-      const bootstrapScript = `
-window.ATOZ_INITIAL_DATA = ${JSON.stringify(liveDataSnapshot)};
-try {
-  localStorage.setItem('${STORAGE_KEY}', JSON.stringify(${JSON.stringify(state)}));
-} catch (e) {}
-`;
-
-      let finalHtml = '<!DOCTYPE html>\n<html lang="es">\n' + document.head.outerHTML + '\n' + document.body.outerHTML + '\n</html>';
-
-      if (logoDataUrl.startsWith('data:')) {
-        finalHtml = finalHtml.replace(/href="logo\.png"/g, `href="${logoDataUrl}"`).replace(/src="logo\.png"/g, `src="${logoDataUrl}"`);
-      }
-      if (cssText) {
-        finalHtml = finalHtml.replace('<link rel="stylesheet" href="styles.css">', `<style>\n${cssText}\n</style>`);
-      }
-      if (appJsText) {
-        finalHtml = finalHtml
-          .replace('<script src="data.js"></script>', `<script>\n${bootstrapScript}\n</script>`)
-          .replace('<script src="app.js"></script>', `<script>\n${appJsText}\n</script>`);
-      } else {
-        // Si ya estaba ejecutándose desde el archivo local autocontenido, actualizar el snapshot interno
-        finalHtml = finalHtml.replace(/window\.ATOZ_INITIAL_DATA\s*=\s*\{[\s\S]*?\};/, bootstrapScript);
-      }
-
+      const finalHtml = await buildStandaloneHtmlContent();
       const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'Bodegon_Atoz_Sistema_Local.html';
       a.click();
-      toast('¡Sistema Local descargado con todas tus ventas, inventario y clientes guardados!');
+      toast('¡Sistema Local descargado! Ábrelo con doble clic y entra con dzara / dzara o 1756762');
     } catch (err) {
       console.error(err);
-      window.location.href = 'Bodegon_Atoz_App_Local.html';
+      toast('Error al generar el archivo local');
+    }
+  }
+
+  // Generador ZIP 100% nativo en JavaScript (CRC32 + PKZIP Store) para que el .ZIP nunca dé error al descomprimir en Windows
+  function createValidZipBlob(files) {
+    const enc = new TextEncoder();
+    const crcTable = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) {
+        c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      }
+      crcTable[n] = c >>> 0;
+    }
+    function crc32(bytes) {
+      let c = 0xffffffff;
+      for (let i = 0; i < bytes.length; i++) {
+        c = crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+      }
+      return (c ^ 0xffffffff) >>> 0;
+    }
+
+    const localParts = [];
+    const centralParts = [];
+    let offset = 0;
+
+    files.forEach(f => {
+      const nameBytes = enc.encode(f.name);
+      const dataBytes = typeof f.content === 'string' ? enc.encode(f.content) : f.content;
+      const crc = crc32(dataBytes);
+      const size = dataBytes.length;
+
+      const localHeader = new Uint8Array(30 + nameBytes.length);
+      const lv = new DataView(localHeader.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);
+      lv.setUint16(6, 0x0800, true);
+      lv.setUint16(8, 0, true);
+      lv.setUint16(10, 0, true);
+      lv.setUint16(12, 0, true);
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, size, true);
+      lv.setUint32(22, size, true);
+      lv.setUint16(26, nameBytes.length, true);
+      lv.setUint16(28, 0, true);
+      localHeader.set(nameBytes, 30);
+
+      localParts.push(localHeader, dataBytes);
+
+      const centralHeader = new Uint8Array(46 + nameBytes.length);
+      const cv = new DataView(centralHeader.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(4, 20, true);
+      cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0x0800, true);
+      cv.setUint16(10, 0, true);
+      cv.setUint16(12, 0, true);
+      cv.setUint16(14, 0, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, size, true);
+      cv.setUint32(24, size, true);
+      cv.setUint16(28, nameBytes.length, true);
+      cv.setUint16(30, 0, true);
+      cv.setUint16(32, 0, true);
+      cv.setUint16(34, 0, true);
+      cv.setUint16(36, 0, true);
+      cv.setUint32(38, 0, true);
+      cv.setUint32(42, offset, true);
+      centralHeader.set(nameBytes, 46);
+
+      centralParts.push(centralHeader);
+      offset += localHeader.length + size;
+    });
+
+    const cdSize = centralParts.reduce((acc, p) => acc + p.length, 0);
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(4, 0, true);
+    ev.setUint16(6, 0, true);
+    ev.setUint16(8, files.length, true);
+    ev.setUint16(10, files.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, offset, true);
+    ev.setUint16(20, 0, true);
+
+    return new Blob([...localParts, ...centralParts, eocd], { type: 'application/zip' });
+  }
+
+  async function downloadStandaloneZipPackage() {
+    toast('Empaquetando carpeta portátil .ZIP para Windows...');
+    try {
+      const finalHtml = await buildStandaloneHtmlContent();
+      const launcherCmd =
+        '@echo off\r\n' +
+        'title Bodegon y Market Atoz - Sistema Local\r\n' +
+        'if exist "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" (\r\n' +
+        '  start "" "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --app="%~dp0Bodegon_Atoz_Sistema_Local.html" --window-size=1440,900\r\n' +
+        '  exit\r\n' +
+        ')\r\n' +
+        'if exist "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe" (\r\n' +
+        '  start "" "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe" --app="%~dp0Bodegon_Atoz_Sistema_Local.html" --window-size=1440,900\r\n' +
+        '  exit\r\n' +
+        ')\r\n' +
+        'start "" "%~dp0Bodegon_Atoz_Sistema_Local.html"\r\n';
+
+      const readmeTxt =
+        '==================================================================\r\n' +
+        'BODEGON & MARKET ATOZ - SISTEMA LOCAL PARA WINDOWS (SIN INTERNET)\r\n' +
+        '==================================================================\r\n\r\n' +
+        '1. Extrae esta carpeta en tu Escritorio de Windows.\r\n' +
+        '2. Haz doble clic en "Iniciar_Bodegon_Atoz_Windows.cmd" o en "Bodegon_Atoz_Sistema_Local.html".\r\n' +
+        '3. Usuario Admin: dzara | Contrasena: dzara (o 1756762)\r\n';
+
+      const zipBlob = createValidZipBlob([
+        { name: 'Bodegon_Atoz_Windows/Bodegon_Atoz_Sistema_Local.html', content: finalHtml },
+        { name: 'Bodegon_Atoz_Windows/Iniciar_Bodegon_Atoz_Windows.cmd', content: launcherCmd },
+        { name: 'Bodegon_Atoz_Windows/LEEME_INSTRUCCIONES.txt', content: readmeTxt }
+      ]);
+
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(zipBlob);
+      a.download = 'Bodegon_Atoz_Windows_Local.zip';
+      a.click();
+      toast('¡Carpeta .ZIP descargada con éxito y lista para descomprimir en Windows!');
+    } catch (err) {
+      console.error(err);
+      toast('Error al generar el archivo .ZIP');
     }
   }
 
