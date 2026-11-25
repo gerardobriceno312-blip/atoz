@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="styles.css?v=7">
+  <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -465,16 +465,19 @@
           <div id="cierre-master-renglones-tbody" class="simple-closures-grid"></div>
         </div>
 
-        <!-- BOTONES GRANDES PARA CAMBIAR ENTRE DIARIO, SEMANAL Y MENSUAL -->
-        <div class="closure-period-tabs">
-          <button type="button" class="period-tab-btn active" data-period="DIARIO" style="font-size:17px; padding:16px;">
-            <i class="fa-solid fa-calendar-day"></i> 1. CIERRE DIARIO (HOY)
+        <!-- BOTONES GRANDES PARA ELEGIR: DIARIO, SEMANAL, MENSUAL O TODOS LOS CIERRES -->
+        <div class="closure-period-tabs closure-period-tabs-4">
+          <button type="button" class="period-tab-btn active" data-period="DIARIO" style="font-size:16.5px; padding:15px;">
+            <i class="fa-solid fa-calendar-day"></i> 1. CIERRE DIARIO
           </button>
-          <button type="button" class="period-tab-btn" data-period="SEMANAL" style="font-size:17px; padding:16px;">
-            <i class="fa-solid fa-calendar-week"></i> 2. CIERRE SEMANAL (7 DÍAS)
+          <button type="button" class="period-tab-btn" data-period="SEMANAL" style="font-size:16.5px; padding:15px;">
+            <i class="fa-solid fa-calendar-week"></i> 2. CIERRE SEMANAL
           </button>
-          <button type="button" class="period-tab-btn" data-period="MENSUAL" style="font-size:17px; padding:16px;">
-            <i class="fa-solid fa-calendar-days"></i> 3. CIERRE MENSUAL (MES)
+          <button type="button" class="period-tab-btn" data-period="MENSUAL" style="font-size:16.5px; padding:15px;">
+            <i class="fa-solid fa-calendar-days"></i> 3. CIERRE MENSUAL
+          </button>
+          <button type="button" class="period-tab-btn" data-period="TODOS" style="font-size:16.5px; padding:15px;">
+            <i class="fa-solid fa-layer-group"></i> 4. VER TODOS LOS CIERRES
           </button>
         </div>
 
@@ -485,9 +488,17 @@
                 <h3 id="cierre-active-period-title" style="font-size:21px;"><i class="fa-solid fa-cash-register text-gold"></i> 1. Cierre Diario (Hoy)</h3>
                 <span id="cierre-active-period-subtitle" class="hint" style="font-size:14px;">Resumen claro en Bolívares (Bs) y Euros (€ BCV)</span>
               </div>
-              <div id="cierre-period-filter-wrap" style="display:flex; gap:8px; align-items:center;">
-                <label style="margin:0; font-size:13px;">Mes:</label>
-                <input type="month" id="cierre-month-picker" class="input-sm" style="width:170px; font-size:14.5px; font-weight:800;">
+              <div id="cierre-period-filter-wrap" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.35); padding:6px 10px; border-radius:10px; border:1.5px solid var(--gold-border);">
+                  <label style="margin:0; font-size:13.5px; color:var(--gold); font-weight:800;"><i class="fa-solid fa-calendar-day"></i> Filtrar Día:</label>
+                  <input type="date" id="cierre-day-picker" class="input-sm" style="width:155px; font-size:14px; font-weight:800;">
+                  <button type="button" id="btn-cierre-day-today" class="mini-btn" style="padding:6px 10px; font-size:13px;">Hoy</button>
+                  <button type="button" id="btn-cierre-day-all" class="btn-gold" style="padding:6px 11px; font-size:13px;">Todos los Días</button>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.35); padding:6px 10px; border-radius:10px; border:1.5px solid var(--gold-border);">
+                  <label style="margin:0; font-size:13.5px; color:var(--gold); font-weight:800;">Mes:</label>
+                  <input type="month" id="cierre-month-picker" class="input-sm" style="width:155px; font-size:14px; font-weight:800;">
+                </div>
               </div>
             </div>
 
@@ -595,14 +606,23 @@
           </div>
 
           <div class="box">
-            <div class="box-header">
-              <h3 style="font-size:19px;"><i class="fa-solid fa-clock-rotate-left text-gold"></i> Cierres Guardados</h3>
-              <select id="filter-closures-type" class="input-sm" style="width:180px; font-size:14px; font-weight:800;">
-                <option value="ALL">Ver Todos</option>
-                <option value="DIARIO">Cierres Diarios</option>
-                <option value="SEMANAL">Cierres Semanales</option>
-                <option value="MENSUAL">Cierres Mensuales</option>
-              </select>
+            <div class="box-header" style="flex-direction:column; align-items:stretch; gap:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <h3 style="font-size:19px;"><i class="fa-solid fa-clock-rotate-left text-gold"></i> Todos los Cierres Guardados</h3>
+                <span id="closures-count-badge" class="euro-badge-pill" style="font-size:13px;">0 cierres</span>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; background:rgba(0,0,0,0.32); padding:10px; border-radius:10px; border:1px solid var(--gold-border);">
+                <select id="filter-closures-type" class="input-sm" style="flex:1; min-width:155px; font-size:14px; font-weight:800;">
+                  <option value="ALL">Mostrar Todos los Cierres</option>
+                  <option value="DIARIO">Solo Cierres Diarios</option>
+                  <option value="SEMANAL">Solo Cierres Semanales</option>
+                  <option value="MENSUAL">Solo Cierres Mensuales</option>
+                </select>
+                <input type="date" id="filter-closures-day" class="input-sm" style="flex:1; min-width:145px; font-size:14px; font-weight:800;" title="Filtrar cierres por un día específico">
+                <button type="button" id="btn-clear-closures-filters" class="btn-gold" style="padding:8px 14px; font-size:13.5px;">
+                  Ver Todos
+                </button>
+              </div>
             </div>
             <div id="closures-list" class="closures-list"></div>
           </div>
@@ -1102,7 +1122,7 @@
   <!-- TOAST -->
   <div id="toast-box" class="toast-box"></div>
 
-  <script src="data.js?v=7"></script>
-  <script src="app.js?v=7"></script>
+  <script src="data.js?v=8"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

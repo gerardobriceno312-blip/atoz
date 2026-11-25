@@ -1454,6 +1454,10 @@ select:focus {
   margin-bottom: 16px;
 }
 
+.closure-period-tabs.closure-period-tabs-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .period-tab-btn {
   background: #28060B;
   color: #FFF;

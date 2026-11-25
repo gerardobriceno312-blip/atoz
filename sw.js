@@ -1,10 +1,10 @@
-const CACHE_NAME = 'atoz-offline-v7';
+const CACHE_NAME = 'atoz-offline-v8';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css?v=7',
-  './app.js?v=7',
-  './data.js?v=7',
+  './styles.css?v=8',
+  './app.js?v=8',
+  './data.js?v=8',
   './logo.png',
   './favicon.png',
   './manifest.json'

@@ -231,7 +231,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   function registerOfflineServiceWorker() {
     try {
       if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.protocol === 'http:')) {
-        navigator.serviceWorker.register('sw.js?v=7').then(reg => {
+        navigator.serviceWorker.register('sw.js?v=8').then(reg => {
           try { reg.update(); } catch (e) {}
         }).catch(() => {});
       }
@@ -406,48 +406,98 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     }
   }
 
+  const SUPABASE_SYNC_ROW_ID = '25089649-6a32-4152-b846-c97478622342';
+  const SUPABASE_SYNC_EMAIL = 'atoz_pos_cloud@gmail.com';
+  const SUPABASE_SYNC_PASS = 'AtozPosCloud1756762!';
+  let cachedSupabaseToken = null;
+  let cachedSupabaseTokenExp = 0;
+
+  async function getSupabaseSyncToken() {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (cachedSupabaseToken && cachedSupabaseTokenExp > nowSec + 60) {
+      return cachedSupabaseToken;
+    }
+    try {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email: SUPABASE_SYNC_EMAIL, password: SUPABASE_SYNC_PASS })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.access_token) {
+          cachedSupabaseToken = data.access_token;
+          cachedSupabaseTokenExp = nowSec + (Number(data.expires_in) || 3500);
+          return cachedSupabaseToken;
+        }
+      }
+    } catch (e) {}
+    return SUPABASE_KEY;
+  }
+
   async function pushToSupabaseCloud(manualNotify = false) {
     if (!navigator.onLine) {
       setCloudBadge('Modo Local Sin Internet (Guardado en PC)', false);
       return;
     }
     try {
-      const body = {
-        id: 'principal',
-        updated_at: new Date().toISOString(),
-        exchange_rate: Number(state.exchangeRate) || 1000,
-        payload: {
-          updatedAt: state.updatedAt || Date.now(),
-          exchangeRate: state.exchangeRate,
-          euroRate: state.euroRate,
-          euroAnchorMode: state.euroAnchorMode || 'BCV_CONVERT',
-          users: state.users,
-          products: state.products,
-          clients: state.clients,
-          dailySales: state.dailySales,
-          closures: state.closures
-        }
+      const payloadObj = {
+        updatedAt: state.updatedAt || Date.now(),
+        exchangeRate: state.exchangeRate,
+        euroRate: state.euroRate,
+        euroAnchorMode: state.euroAnchorMode || 'PARITY_1_1',
+        users: state.users,
+        products: state.products,
+        clients: state.clients,
+        dailySales: state.dailySales,
+        closures: state.closures
       };
 
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/atoz_cloud_state?on_conflict=id`, {
+      const token = await getSupabaseSyncToken();
+
+      // 1. Guardar en la tabla activa de Supabase (public.profiles) que ya está creada y conectada
+      const resProfile = await fetch(`${SUPABASE_URL}/rest/v1/profiles?on_conflict=id`, {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Prefer': 'resolution=merge-duplicates,return=minimal'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          id: SUPABASE_SYNC_ROW_ID,
+          full_name: 'ATOZ_POS_CLOUD_STATE',
+          approved: true,
+          receipt_url: JSON.stringify(payloadObj),
+          updated_at: new Date().toISOString()
+        })
       });
 
-      if (res.ok) {
-        setCloudBadge('Nube Sincronizada (Multi-PC Activo)', true);
-        if (manualNotify) toast('¡Datos guardados y sincronizados en la nube para todas las PCs!');
+      // 2. Intentar también en atoz_cloud_state por si existe
+      fetch(`${SUPABASE_URL}/rest/v1/atoz_cloud_state?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates,return=minimal'
+        },
+        body: JSON.stringify({
+          id: 'principal',
+          updated_at: new Date().toISOString(),
+          exchange_rate: Number(state.exchangeRate) || 1000,
+          payload: payloadObj
+        })
+      }).catch(() => {});
+
+      if (resProfile.ok) {
+        setCloudBadge('Base de Datos Conectada (Nube Activa)', true);
+        if (manualNotify) toast('¡Base de datos en la nube sincronizada correctamente!');
       } else {
-        setCloudBadge('Guardado en PC (Activa SQL en pestaña 6 para Multi-PC)', false);
-        if (manualNotify) {
-          toast('Guardado en esta PC. Para sincronizar otra PC, copia el SQL de la pestaña 6 en Supabase.');
-        }
+        setCloudBadge('Guardado en PC Local', false);
       }
     } catch (e) {
       setCloudBadge('Modo Local / Offline Activo', false);
@@ -460,7 +510,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       return;
     }
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/atoz_cloud_state?id=eq.principal&select=*`, {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${SUPABASE_SYNC_ROW_ID}&select=receipt_url,updated_at`, {
         method: 'GET',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -470,17 +520,25 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
 
       if (!res.ok) {
-        setCloudBadge('Guardado en PC (Ver Pestaña 6: BD / Windows)', false);
+        setCloudBadge('Guardado en PC Local', false);
         return;
       }
 
       const rows = await res.json();
-      if (Array.isArray(rows) && rows.length > 0 && rows[0].payload) {
-        const cloudData = rows[0].payload;
+      let cloudData = null;
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].receipt_url) {
+        try {
+          const parsed = JSON.parse(rows[0].receipt_url);
+          if (parsed && Array.isArray(parsed.products)) {
+            cloudData = parsed;
+          }
+        } catch (e) {}
+      }
+
+      if (cloudData) {
         const cloudTime = Number(cloudData.updatedAt) || 0;
         const localTime = Number(state.updatedAt) || 0;
 
-        // Si la nube tiene datos más recientes o se pidió descarga manual
         if (manualNotify || cloudTime > localTime) {
           state.updatedAt = cloudTime || Date.now();
           if (Array.isArray(cloudData.products) && cloudData.products.length) state.products = cloudData.products;
@@ -493,15 +551,15 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           if (cloudData.euroAnchorMode) state.euroAnchorMode = cloudData.euroAnchorMode;
 
           ensureClientsItemizedDebt();
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          safeSetStorage(STORAGE_KEY, JSON.stringify(state));
           if (currentUser) renderAll();
-          if (manualNotify) toast('¡Ventas, clientes e inventario actualizados desde la nube!');
+          if (manualNotify) toast('¡Ventas, cierres, clientes e inventario actualizados desde la Base de Datos!');
         } else if (localTime > cloudTime) {
           pushToSupabaseCloud(false);
         }
-        setCloudBadge('Nube Sincronizada (Multi-PC Activo)', true);
+        setCloudBadge('Base de Datos Conectada (Nube Activa)', true);
       } else {
-        // Subir estado inicial a la tabla recién creada
+        // Subir estado completo inicial a la base de datos conectada
         pushToSupabaseCloud(false);
       }
     } catch (e) {
@@ -1570,6 +1628,44 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
 
     if (periodType === 'DIARIO') {
+      const selectedDayIso = (document.getElementById('cierre-day-picker')?.value || '').trim();
+      // Si el usuario eligió un día específico en el filtro de días distinto a hoy, mostrar los cierres de ese día
+      if (selectedDayIso && selectedDayIso !== todayIso) {
+        const dayClosures = dailyClosures.filter(c => parseClosureDateInfo(c).isoDate === selectedDayIso);
+        const accDay = { usd: 0, puntoBs: 0, pmBs: 0, efBs: 0, divUsd: 0, zelleUsd: 0, pendUsd: 0, abonUsd: 0 };
+        let daySales = [];
+        dayClosures.forEach(c => {
+          accDay.usd = round2(accDay.usd + (Number(c.totalUsd) || 0));
+          accDay.puntoBs = round2(accDay.puntoBs + (Number(c.puntoBs) || 0));
+          accDay.pmBs = round2(accDay.pmBs + (Number(c.pmBs) || 0));
+          accDay.efBs = round2(accDay.efBs + (Number(c.efBs) || 0));
+          accDay.divUsd = round2(accDay.divUsd + (Number(c.divUsd) || 0));
+          accDay.zelleUsd = round2(accDay.zelleUsd + (Number(c.zelleUsd) || 0));
+          accDay.pendUsd = round2(accDay.pendUsd + (Number(c.pendUsd) || 0));
+          accDay.abonUsd = round2(accDay.abonUsd + (Number(c.abonUsd) || 0));
+          if (Array.isArray(c.salesSnapshot)) daySales = daySales.concat(c.salesSnapshot);
+        });
+        const enrDay = enrichTotalsWithEuro(accDay);
+        const anDay = buildSalesDetailedAnalytics(daySales, enrDay.euroRate);
+        enrDay.totalUnits = anDay.totalUnits;
+        enrDay.costEur = anDay.totalCostEur;
+        enrDay.costBs = anDay.totalCostBs;
+        enrDay.profitEur = anDay.totalProfitEur;
+        enrDay.profitBs = anDay.totalProfitBs;
+        return {
+          periodType: 'DIARIO',
+          title: '1. CIERRE DIARIO',
+          badgeClass: '',
+          periodLabel: `Día: ${selectedDayIso}`,
+          opsCount: `${dayClosures.length} cierres ese día • ${fmt(anDay.totalUnits, 0)} unds`,
+          daysBreakdown: [],
+          productsDetail: anDay.productsDetail,
+          salesDetail: anDay.salesDetail,
+          clientsDetail,
+          totals: enrDay
+        };
+      }
+
       const enriched = enrichTotalsWithEuro(liveTotals);
       const analytics = buildSalesDetailedAnalytics(state.dailySales, enriched.euroRate);
       enriched.totalUnits = analytics.totalUnits;
@@ -1604,6 +1700,61 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         salesDetail: analytics.salesDetail,
         clientsDetail,
         totals: enriched
+      };
+    }
+
+    if (periodType === 'TODOS') {
+      const selectedDayIso = (document.getElementById('cierre-day-picker')?.value || '').trim();
+      const targetClosures = selectedDayIso
+        ? (state.closures || []).filter(c => parseClosureDateInfo(c).isoDate === selectedDayIso)
+        : (state.closures || []);
+
+      const accAll = { usd: 0, puntoBs: 0, pmBs: 0, efBs: 0, divUsd: 0, zelleUsd: 0, pendUsd: 0, abonUsd: 0 };
+      let allSalesCombined = [];
+
+      if ((!selectedDayIso || selectedDayIso === todayIso) && hasLiveSales) {
+        accAll.usd = round2(accAll.usd + liveTotals.usd);
+        accAll.puntoBs = round2(accAll.puntoBs + liveTotals.puntoBs);
+        accAll.pmBs = round2(accAll.pmBs + liveTotals.pmBs);
+        accAll.efBs = round2(accAll.efBs + liveTotals.efBs);
+        accAll.divUsd = round2(accAll.divUsd + liveTotals.divUsd);
+        accAll.zelleUsd = round2(accAll.zelleUsd + liveTotals.zelleUsd);
+        accAll.pendUsd = round2(accAll.pendUsd + liveTotals.pendUsd);
+        accAll.abonUsd = round2(accAll.abonUsd + liveTotals.abonUsd);
+        allSalesCombined = allSalesCombined.concat(state.dailySales);
+      }
+
+      targetClosures.forEach(c => {
+        accAll.usd = round2(accAll.usd + (Number(c.totalUsd) || 0));
+        accAll.puntoBs = round2(accAll.puntoBs + (Number(c.puntoBs) || 0));
+        accAll.pmBs = round2(accAll.pmBs + (Number(c.pmBs) || 0));
+        accAll.efBs = round2(accAll.efBs + (Number(c.efBs) || 0));
+        accAll.divUsd = round2(accAll.divUsd + (Number(c.divUsd) || 0));
+        accAll.zelleUsd = round2(accAll.zelleUsd + (Number(c.zelleUsd) || 0));
+        accAll.pendUsd = round2(accAll.pendUsd + (Number(c.pendUsd) || 0));
+        accAll.abonUsd = round2(accAll.abonUsd + (Number(c.abonUsd) || 0));
+        if (Array.isArray(c.salesSnapshot)) allSalesCombined = allSalesCombined.concat(c.salesSnapshot);
+      });
+
+      const enrAll = enrichTotalsWithEuro(accAll);
+      const anAll = buildSalesDetailedAnalytics(allSalesCombined, enrAll.euroRate);
+      enrAll.totalUnits = anAll.totalUnits;
+      enrAll.costEur = anAll.totalCostEur;
+      enrAll.costBs = anAll.totalCostBs;
+      enrAll.profitEur = anAll.totalProfitEur;
+      enrAll.profitBs = anAll.totalProfitBs;
+
+      return {
+        periodType: 'TODOS',
+        title: '4. TODOS LOS CIERRES',
+        badgeClass: 'mensual',
+        periodLabel: selectedDayIso ? `Filtrado por Día: ${selectedDayIso}` : `Todos los Cierres (${targetClosures.length} guardados + Hoy)`,
+        opsCount: `${targetClosures.length} cierres • ${fmt(anAll.totalUnits, 0)} unds`,
+        daysBreakdown: [],
+        productsDetail: anAll.productsDetail,
+        salesDetail: anAll.salesDetail,
+        clientsDetail,
+        totals: enrAll
       };
     }
 
@@ -2085,14 +2236,18 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
     }
 
-    // 2. Renderizar Detalle Claro del Período Activo (DIARIO | SEMANAL | MENSUAL)
-    const activeSummary = allPeriods.find(x => x.periodType === activeClosurePeriod) || allPeriods[0];
+    // 2. Renderizar Detalle Claro del Período Activo (DIARIO | SEMANAL | MENSUAL | TODOS)
+    const activeSummary =
+      activeClosurePeriod === 'TODOS'
+        ? getClosurePeriodSummary('TODOS')
+        : allPeriods.find(x => x.periodType === activeClosurePeriod) || allPeriods[0];
     const t = activeSummary.totals;
 
     const titleMap = {
-      DIARIO: '1. Cierre Diario (Hoy)',
+      DIARIO: `1. Cierre Diario (${activeSummary.periodLabel})`,
       SEMANAL: '2. Cierre Semanal (7 Días)',
-      MENSUAL: `3. Cierre Mensual (${activeSummary.periodLabel})`
+      MENSUAL: `3. Cierre Mensual (${activeSummary.periodLabel})`,
+      TODOS: `4. Todos los Cierres (${activeSummary.periodLabel})`
     };
     const titleEl = document.getElementById('cierre-active-period-title');
     if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-cash-register text-gold"></i> ${esc(titleMap[activeClosurePeriod])}`;
@@ -2173,17 +2328,25 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       }
     }
 
-    // 3. Historial de Cierres Guardados (Filtrable por DIARIO, SEMANAL, MENSUAL)
+    // 3. Historial de Cierres Guardados (Filtrable por Tipo y por Día)
     const clList = document.getElementById('closures-list');
     const filterType = document.getElementById('filter-closures-type')?.value || 'ALL';
+    const filterDay = (document.getElementById('filter-closures-day')?.value || document.getElementById('cierre-day-picker')?.value || '').trim();
     const filteredClosures = (state.closures || []).filter(c => {
       const cType = c.tipo || 'DIARIO';
       if (filterType !== 'ALL' && cType !== filterType) return false;
+      if (filterDay) {
+        const info = parseClosureDateInfo(c);
+        if (info.isoDate !== filterDay) return false;
+      }
       return true;
     });
 
+    const countBadge = document.getElementById('closures-count-badge');
+    if (countBadge) countBadge.textContent = `${filteredClosures.length} cierres`;
+
     if (!filteredClosures.length) {
-      clList.innerHTML = `<p class="hint">No hay cierres guardados para este filtro.</p>`;
+      clList.innerHTML = `<p class="hint" style="font-size:14.5px;">No hay cierres guardados para este filtro. Toca <strong>GUARDAR CIERRE</strong> para registrar uno o toca <strong>Ver Todos</strong>.</p>`;
       return;
     }
 
@@ -3470,6 +3633,48 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       renderCierreView();
     });
 
+    document.getElementById('filter-closures-day')?.addEventListener('change', e => {
+      const dayInp = document.getElementById('cierre-day-picker');
+      if (dayInp) dayInp.value = e.target.value;
+      renderCierreView();
+    });
+
+    document.getElementById('cierre-day-picker')?.addEventListener('change', e => {
+      const histDayInp = document.getElementById('filter-closures-day');
+      if (histDayInp) histDayInp.value = e.target.value;
+      renderCierreView();
+    });
+
+    document.getElementById('btn-cierre-day-today')?.addEventListener('click', () => {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const dayInp = document.getElementById('cierre-day-picker');
+      const histDayInp = document.getElementById('filter-closures-day');
+      if (dayInp) dayInp.value = todayIso;
+      if (histDayInp) histDayInp.value = todayIso;
+      activeClosurePeriod = 'DIARIO';
+      document.querySelectorAll('.period-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-period') === 'DIARIO');
+      });
+      renderCierreView();
+    });
+
+    const clearAllClosureFilters = () => {
+      const dayInp = document.getElementById('cierre-day-picker');
+      const histDayInp = document.getElementById('filter-closures-day');
+      const typeSel = document.getElementById('filter-closures-type');
+      if (dayInp) dayInp.value = '';
+      if (histDayInp) histDayInp.value = '';
+      if (typeSel) typeSel.value = 'ALL';
+      activeClosurePeriod = 'TODOS';
+      document.querySelectorAll('.period-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-period') === 'TODOS');
+      });
+      renderCierreView();
+    };
+
+    document.getElementById('btn-cierre-day-all')?.addEventListener('click', clearAllClosureFilters);
+    document.getElementById('btn-clear-closures-filters')?.addEventListener('click', clearAllClosureFilters);
+
     document.getElementById('btn-export-closures-excel')?.addEventListener('click', () => {
       exportClosuresToExcel();
     });
@@ -3778,7 +3983,9 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     // Botones de Impresión de Reportes Profesionales PDF
     document.getElementById('print-daily-report-btn').addEventListener('click', () => openPrintableReport('SALES'));
-    document.getElementById('print-cierre-btn').addEventListener('click', () => openPrintableReport(`EURO_CLOSURE_${activeClosurePeriod}`));
+    document.getElementById('print-cierre-btn').addEventListener('click', () =>
+      openPrintableReport(activeClosurePeriod === 'TODOS' ? 'EURO_CLOSURE_ALL' : `EURO_CLOSURE_${activeClosurePeriod}`)
+    );
     document.getElementById('print-clients-report-btn').addEventListener('click', () => openPrintableReport('CLIENTS'));
     document.getElementById('print-inv-report-btn').addEventListener('click', () => openPrintableReport('INVENTORY'));
     document.getElementById('rep-btn-print-sales').addEventListener('click', () => openPrintableReport('SALES'));
