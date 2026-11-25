@@ -231,7 +231,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   function registerOfflineServiceWorker() {
     try {
       if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.protocol === 'http:')) {
-        navigator.serviceWorker.register('sw.js?v=8').then(reg => {
+        navigator.serviceWorker.register('sw.js?v=9').then(reg => {
           try { reg.update(); } catch (e) {}
         }).catch(() => {});
       }
@@ -1628,7 +1628,11 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
 
     if (periodType === 'DIARIO') {
-      const selectedDayIso = (document.getElementById('cierre-day-picker')?.value || '').trim();
+      const selectedDayIso = (
+        document.getElementById('caja-cierre-day-picker')?.value ||
+        document.getElementById('cierre-day-picker')?.value ||
+        ''
+      ).trim();
       // Si el usuario eligió un día específico en el filtro de días distinto a hoy, mostrar los cierres de ese día
       if (selectedDayIso && selectedDayIso !== todayIso) {
         const dayClosures = dailyClosures.filter(c => parseClosureDateInfo(c).isoDate === selectedDayIso);
@@ -1704,7 +1708,11 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     }
 
     if (periodType === 'TODOS') {
-      const selectedDayIso = (document.getElementById('cierre-day-picker')?.value || '').trim();
+      const selectedDayIso = (
+        document.getElementById('caja-cierre-day-picker')?.value ||
+        document.getElementById('cierre-day-picker')?.value ||
+        ''
+      ).trim();
       const targetClosures = selectedDayIso
         ? (state.closures || []).filter(c => parseClosureDateInfo(c).isoDate === selectedDayIso)
         : (state.closures || []);
@@ -2030,19 +2038,27 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       .join('');
   }
 
-  // Renderiza el Renglón Sencillo de Cierres Diario, Semanal y Mensual dentro de 1. Caja Diaria
+  // Renderiza el Renglón Sencillo de Cierres Diario, Semanal y Mensual + Lista Filtrada dentro de 1. Caja Diaria
   function renderCajaEuroRenglon() {
     const container = document.getElementById('caja-euro-renglon-tbody');
     const rateLbl = document.getElementById('caja-euro-rate-lbl');
     if (rateLbl) rateLbl.textContent = `${fmt(getEuroRate(), 2)} Bs/€`;
     if (!container) return;
 
-    const periods = [
+    const selType = document.getElementById('caja-cierre-type-select')?.value || 'ALL';
+    const selDay = (document.getElementById('caja-cierre-day-picker')?.value || '').trim();
+
+    let periods = [
       getClosurePeriodSummary('DIARIO'),
       getClosurePeriodSummary('SEMANAL'),
       getClosurePeriodSummary('MENSUAL')
     ];
 
+    if (selType !== 'ALL') {
+      periods = periods.filter(p => p.periodType === selType);
+    }
+
+    container.style.gridTemplateColumns = periods.length === 1 ? '1fr' : 'repeat(3, 1fr)';
     container.innerHTML = buildSimpleClosureCardsHtml(periods, false);
 
     container.querySelectorAll('.btn-quick-save-closure').forEach(btn => {
@@ -2058,6 +2074,77 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         openPrintableReport(`EURO_CLOSURE_${per}`);
       });
     });
+
+    // Renderizar también la lista de todos los cierres guardados (filtrada por tipo y por día) directamente en 1. Caja Diaria
+    const savedListEl = document.getElementById('caja-saved-closures-list');
+    const countLbl = document.getElementById('caja-closures-count-lbl');
+    const statusLbl = document.getElementById('caja-closures-filter-status');
+    if (savedListEl) {
+      const filteredSaved = (state.closures || []).filter(c => {
+        const cType = c.tipo || 'DIARIO';
+        if (selType !== 'ALL' && cType !== selType) return false;
+        if (selDay) {
+          const info = parseClosureDateInfo(c);
+          if (info.isoDate !== selDay) return false;
+        }
+        return true;
+      });
+
+      if (countLbl) countLbl.textContent = filteredSaved.length;
+      if (statusLbl) {
+        statusLbl.textContent = selDay ? `Filtrado por el día: ${selDay}` : 'Mostrando todos los cierres de todos los días';
+      }
+
+      if (!filteredSaved.length) {
+        savedListEl.innerHTML = `<p class="hint" style="font-size:14px;">Aún no hay cierres guardados para este filtro. Toca <strong>GUARDAR CIERRE</strong> arriba para registrar el cierre.</p>`;
+      } else {
+        savedListEl.innerHTML = filteredSaved
+          .map(c => {
+            const cType = c.tipo || 'DIARIO';
+            const badgeCls = cType === 'SEMANAL' ? 'semanal' : cType === 'MENSUAL' ? 'mensual' : '';
+            const enr = enrichTotalsWithEuro(
+              {
+                usd: c.totalUsd,
+                puntoBs: c.puntoBs,
+                pmBs: c.pmBs,
+                efBs: c.efBs,
+                divUsd: c.divUsd,
+                zelleUsd: c.zelleUsd,
+                pendUsd: c.pendUsd,
+                abonUsd: c.abonUsd
+              },
+              c.euroRate,
+              c.usdRate
+            );
+            const eurVal = Number(c.totalEur) > 0 ? round2(c.totalEur) : enr.eur;
+            const bsVal = Number(c.totalAnchoredBs) > 0 ? round2(c.totalAnchoredBs) : enr.anchoredBs;
+            return `
+            <div class="closure-item" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <div>
+                <span class="euro-badge-pill ${badgeCls}">CIERRE ${esc(cType)}</span>
+                <strong class="text-gold" style="margin-left:8px; font-size:15px;">${esc(c.date)}</strong>
+                <span style="margin-left:8px; font-size:13.5px; color:var(--muted);">(${esc(c.periodLabel || '')})</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <strong class="text-gold" style="font-size:16px;">${fmt(bsVal, 2)} Bs</strong>
+                <strong style="color:#93C5FD; font-size:15px;">(€${fmt(eurVal, 2)})</strong>
+                <button type="button" class="mini-btn btn-caja-print-saved" data-id="${c.id}" title="Imprimir PDF">
+                  <i class="fa-solid fa-print"></i> PDF
+                </button>
+              </div>
+            </div>
+          `;
+          })
+          .join('');
+
+        savedListEl.querySelectorAll('.btn-caja-print-saved').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const found = state.closures.find(x => x.id === btn.getAttribute('data-id'));
+            if (found) openPrintableReport('SINGLE_SAVED_CLOSURE', found);
+          });
+        });
+      }
+    }
   }
 
   function saveClosureByPeriod(periodType = 'DIARIO', customNote = '') {
@@ -3674,6 +3761,41 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     document.getElementById('btn-cierre-day-all')?.addEventListener('click', clearAllClosureFilters);
     document.getElementById('btn-clear-closures-filters')?.addEventListener('click', clearAllClosureFilters);
+
+    // Filtros directos de Cierres y Días en Opción 1 (1. Caja Diaria)
+    document.getElementById('caja-cierre-type-select')?.addEventListener('change', () => {
+      renderCajaEuroRenglon();
+    });
+
+    document.getElementById('caja-cierre-day-picker')?.addEventListener('change', e => {
+      const dayInp = document.getElementById('cierre-day-picker');
+      const histDayInp = document.getElementById('filter-closures-day');
+      if (dayInp) dayInp.value = e.target.value;
+      if (histDayInp) histDayInp.value = e.target.value;
+      renderCajaEuroRenglon();
+      renderCierreView();
+    });
+
+    document.getElementById('btn-caja-day-today')?.addEventListener('click', () => {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const cajaDay = document.getElementById('caja-cierre-day-picker');
+      const dayInp = document.getElementById('cierre-day-picker');
+      const histDayInp = document.getElementById('filter-closures-day');
+      if (cajaDay) cajaDay.value = todayIso;
+      if (dayInp) dayInp.value = todayIso;
+      if (histDayInp) histDayInp.value = todayIso;
+      renderCajaEuroRenglon();
+      renderCierreView();
+    });
+
+    document.getElementById('btn-caja-day-all')?.addEventListener('click', () => {
+      const cajaDay = document.getElementById('caja-cierre-day-picker');
+      const cajaType = document.getElementById('caja-cierre-type-select');
+      if (cajaDay) cajaDay.value = '';
+      if (cajaType) cajaType.value = 'ALL';
+      clearAllClosureFilters();
+      renderCajaEuroRenglon();
+    });
 
     document.getElementById('btn-export-closures-excel')?.addEventListener('click', () => {
       exportClosuresToExcel();
