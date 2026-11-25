@@ -1372,6 +1372,154 @@ select:focus {
   resize: vertical;
 }
 
+/* ==========================================================================
+   CIERRES DIARIO, SEMANAL Y MENSUAL ANCLADOS AL EURO (€ BCV)
+   ========================================================================== */
+.rate-pill-euro {
+  background: rgba(59, 130, 246, 0.22) !important;
+  border-color: #60A5FA !important;
+  color: #DBEAFE !important;
+}
+
+.rate-pill-euro.active,
+.rate-pill-euro:hover {
+  background: #2563EB !important;
+  border-color: #93C5FD !important;
+  color: #FFF !important;
+}
+
+.tasa-box-euro {
+  border-color: rgba(96, 165, 250, 0.6) !important;
+}
+
+.tasa-box-euro span {
+  color: #93C5FD !important;
+}
+
+.euro-renglon-box,
+.euro-anchor-hero {
+  background: linear-gradient(145deg, #27070D 0%, #150307 100%);
+  border: 2px solid var(--gold);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.euro-rates-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.euro-rate-card {
+  background: rgba(0, 0, 0, 0.38);
+  border: 1.5px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.euro-rate-card.primary {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(91, 20, 30, 0.55));
+  border-color: #60A5FA;
+}
+
+.euro-rate-card span {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.euro-rate-card strong {
+  display: block;
+  font-family: 'Outfit', sans-serif;
+  font-size: 22px;
+  color: var(--gold);
+  margin-top: 2px;
+}
+
+.euro-rate-card.primary strong {
+  color: #93C5FD;
+}
+
+.euro-rate-card small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.closure-period-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.period-tab-btn {
+  background: #28060B;
+  color: #FFF;
+  border: 2px solid var(--gold-border);
+  border-radius: 12px;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  transition: all 0.15s ease;
+}
+
+.period-tab-btn:hover {
+  border-color: var(--gold);
+  background: rgba(255, 242, 170, 0.1);
+}
+
+.period-tab-btn.active {
+  background: var(--gold);
+  color: #160204;
+  border-color: #FFF;
+  box-shadow: 0 0 16px rgba(255, 242, 170, 0.35);
+}
+
+.cierre-big-totals-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.big-total-box.euro-highlight {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.28), rgba(91, 20, 30, 0.7));
+  border: 2px solid #60A5FA;
+}
+
+.big-total-box.euro-highlight strong {
+  color: #93C5FD;
+}
+
+.euro-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 900;
+  background: rgba(37, 99, 235, 0.25);
+  border: 1px solid #60A5FA;
+  color: #DBEAFE;
+}
+
+.euro-badge-pill.semanal {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #34D399;
+  color: #D1FAE5;
+}
+
+.euro-badge-pill.mensual {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
 @media (max-width: 1024px) {
 
   .sale-inputs-grid,
@@ -1379,6 +1527,9 @@ select:focus {
   .summary-strip,
   .cierre-simple-layout,
   .cierre-big-totals,
+  .cierre-big-totals-4,
+  .euro-rates-strip,
+  .closure-period-tabs,
   .report-action-cards,
   .reports-charts-grid,
   .debt-detail-grid {
@@ -1392,6 +1543,9 @@ select:focus {
   .pay-buttons-row,
   .summary-strip,
   .cierre-big-totals,
+  .cierre-big-totals-4,
+  .euro-rates-strip,
+  .closure-period-tabs,
   .report-action-cards,
   .reports-charts-grid,
   .debt-detail-grid {

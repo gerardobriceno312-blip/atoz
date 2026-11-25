@@ -79,8 +79,11 @@ CREATE TABLE IF NOT EXISTS public.atoz_ventas (
 
 CREATE TABLE IF NOT EXISTS public.atoz_cierres (
   id TEXT PRIMARY KEY,
+  tipo TEXT DEFAULT 'DIARIO',
   date TEXT NOT NULL,
   cashier TEXT NOT NULL,
+  total_eur NUMERIC(12,2) DEFAULT 0,
+  euro_rate NUMERIC(12,2) DEFAULT 1080,
   total_usd NUMERIC(12,2) DEFAULT 0,
   punto_bs NUMERIC(14,2) DEFAULT 0,
   pm_bs NUMERIC(14,2) DEFAULT 0,
@@ -127,7 +130,9 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
   let state = {
     updatedAt: 0,
-    exchangeRate: 1000,
+    exchangeRate: 1085,
+    euroRate: 1085,
+    euroAnchorMode: 'PARITY_1_1',
     payMethod: 'punto',
     users: [
       { id: 'u1', fullName: 'David Zara', username: 'dzara', password: 'dzara', role: 'ADMIN' },
@@ -146,6 +151,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   let cloudSyncTimer = null;
   // Carrito / Selección múltiple de productos para un mismo cliente en Caja
   let cartItems = [];
+  // Período activo en la pestaña de Cierres Anclados al Euro: 'DIARIO' | 'SEMANAL' | 'MENSUAL'
+  let activeClosurePeriod = 'DIARIO';
 
   // ==========================================================================
   // 1. INICIO, MODO OFFLINE (SERVICE WORKER) Y ALMACENAMIENTO LOCAL + MULTI-PC
@@ -410,6 +417,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         payload: {
           updatedAt: state.updatedAt || Date.now(),
           exchangeRate: state.exchangeRate,
+          euroRate: state.euroRate,
+          euroAnchorMode: state.euroAnchorMode || 'BCV_CONVERT',
           users: state.users,
           products: state.products,
           clients: state.clients,
@@ -478,6 +487,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           if (Array.isArray(cloudData.closures)) state.closures = cloudData.closures;
           if (Array.isArray(cloudData.users) && cloudData.users.length) state.users = cloudData.users;
           if (Number(cloudData.exchangeRate) > 0) state.exchangeRate = Number(cloudData.exchangeRate);
+          if (Number(cloudData.euroRate) > 0) state.euroRate = Number(cloudData.euroRate);
+          if (cloudData.euroAnchorMode) state.euroAnchorMode = cloudData.euroAnchorMode;
 
           ensureClientsItemizedDebt();
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -519,7 +530,18 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     document.getElementById('active-user-badge').textContent = `${currentUser.role}: ${currentUser.fullName}`;
     document.getElementById('cierre-user-label').textContent = `Cajero: ${currentUser.fullName}`;
+    if (!Number(state.euroRate) || Number(state.euroRate) <= 0) {
+      state.euroRate = round2((Number(state.exchangeRate) || 1000) * 1.085);
+    }
     document.getElementById('global-rate-input').value = Number(state.exchangeRate).toFixed(2);
+    const eurInp = document.getElementById('global-euro-rate-input');
+    if (eurInp) eurInp.value = Number(state.euroRate).toFixed(2);
+    const monthPicker = document.getElementById('cierre-month-picker');
+    if (monthPicker && !monthPicker.value) {
+      monthPicker.value = new Date().toISOString().slice(0, 7);
+    }
+    const modeSel = document.getElementById('cierre-euro-mode-select');
+    if (modeSel) modeSel.value = state.euroAnchorMode || 'BCV_CONVERT';
 
     document.querySelectorAll('.admin-only').forEach(el => {
       el.classList.toggle('hidden', currentUser.role !== 'ADMIN');
@@ -531,22 +553,26 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   }
 
   // ==========================================================================
-  // 1B. ACTUALIZACIÓN 100% AUTOMÁTICA DE TASA OFICIAL BCV POR API (Y OFFLINE)
+  // 1B. ACTUALIZACIÓN 100% AUTOMÁTICA DE TASA OFICIAL BCV ($ Y € EURO) POR API
   // ==========================================================================
   let liveBcvRate = null;
+  let liveEuroBcvRate = null;
 
   async function fetchBcvRateAuto(showToastOnSuccess = true) {
     const icon = document.getElementById('sync-rate-icon');
     const lbl = document.getElementById('lbl-rate-bcv');
+    const lblEur = document.getElementById('lbl-rate-eur');
     if (!navigator.onLine) {
-      if (lbl) lbl.textContent = `${fmt(state.exchangeRate, 2)} Bs (Local)`;
+      if (lbl) lbl.textContent = `${fmt(state.exchangeRate, 2)} Bs`;
+      if (lblEur) lblEur.textContent = `${fmt(state.euroRate || round2(state.exchangeRate * 1.085), 2)} Bs`;
       return;
     }
     if (icon) icon.classList.add('spin');
 
     let fetchedRate = null;
+    let fetchedEuroRate = null;
 
-    // Intento 1: Endpoint directo oficial BCV DolarApi
+    // Intento 1: Endpoint directo oficial BCV DolarApi ($)
     try {
       const res = await fetch('https://ve.dolarapi.com/v1/dolares/oficial', { cache: 'no-store' });
       if (res.ok) {
@@ -557,7 +583,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       }
     } catch (e) {}
 
-    // Intento 2: Lista general DolarApi (solo oficial)
+    // Intento 2: Lista general DolarApi (solo oficial $)
     if (!fetchedRate) {
       try {
         const res2 = await fetch('https://ve.dolarapi.com/v1/dolares', { cache: 'no-store' });
@@ -571,53 +597,131 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       } catch (e) {}
     }
 
-    // Intento 3: API Internacional ExchangeRate (VES oficial)
-    if (!fetchedRate) {
-      try {
-        const res3 = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' });
-        if (res3.ok) {
-          const fb = await res3.json();
-          if (fb && fb.rates && Number(fb.rates.VES) > 0) {
+    // Intento 3: API Internacional ExchangeRate (VES oficial por USD y relación EUR)
+    let internationalEurUsdRatio = null;
+    try {
+      const res3 = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' });
+      if (res3.ok) {
+        const fb = await res3.json();
+        if (fb && fb.rates) {
+          if (!fetchedRate && Number(fb.rates.VES) > 0) {
             fetchedRate = round2(Number(fb.rates.VES));
+          }
+          if (Number(fb.rates.EUR) > 0) {
+            internationalEurUsdRatio = 1 / Number(fb.rates.EUR);
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Intentos para Tasa Oficial EURO BCV (€)
+    try {
+      const resEur1 = await fetch('https://ve.dolarapi.com/v1/euros/oficial', { cache: 'no-store' });
+      if (resEur1.ok) {
+        const dataEur = await resEur1.json();
+        if (dataEur && Number(dataEur.promedio) > 0) {
+          fetchedEuroRate = round2(Number(dataEur.promedio));
+        }
+      }
+    } catch (e) {}
+
+    if (!fetchedEuroRate) {
+      try {
+        const resEur2 = await fetch('https://ve.dolarapi.com/v1/euros', { cache: 'no-store' });
+        if (resEur2.ok) {
+          const listEur = await resEur2.json();
+          const ofiEur = Array.isArray(listEur) ? listEur.find(d => d.fuente === 'oficial') : null;
+          if (ofiEur && Number(ofiEur.promedio) > 0) {
+            fetchedEuroRate = round2(Number(ofiEur.promedio));
           }
         }
       } catch (e) {}
     }
 
+    if (!fetchedEuroRate) {
+      try {
+        const resEur3 = await fetch('https://open.er-api.com/v6/latest/EUR', { cache: 'no-store' });
+        if (resEur3.ok) {
+          const fbEur = await resEur3.json();
+          if (fbEur && fbEur.rates) {
+            if (Number(fbEur.rates.VES) > 0) {
+              fetchedEuroRate = round2(Number(fbEur.rates.VES));
+            } else if (Number(fbEur.rates.USD) > 0 && (fetchedRate || state.exchangeRate)) {
+              fetchedEuroRate = round2((fetchedRate || state.exchangeRate) * Number(fbEur.rates.USD));
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Si obtuvimos la tasa BCV USD y la relación internacional EUR/USD pero no un endpoint directo de Euro
+    const baseUsd = fetchedRate || Number(state.exchangeRate) || 1000;
+    if (!fetchedEuroRate && baseUsd > 0) {
+      const ratio = internationalEurUsdRatio && internationalEurUsdRatio > 1 ? internationalEurUsdRatio : 1.085;
+      fetchedEuroRate = round2(baseUsd * ratio);
+    }
+
     if (icon) icon.classList.remove('spin');
 
-    if (fetchedRate && fetchedRate > 0) {
+    if (fetchedEuroRate && fetchedEuroRate > 0) {
+      liveEuroBcvRate = fetchedEuroRate;
+      state.euroRate = round2(fetchedEuroRate);
+      // Todo el sistema se maneja en Bolívares y a Tasa Oficial Euro BCV
+      state.exchangeRate = state.euroRate;
+      if (lblEur) lblEur.textContent = `${fmt(state.euroRate, 2)} Bs/€`;
+      const eurInp = document.getElementById('global-euro-rate-input');
+      if (eurInp) eurInp.value = state.euroRate.toFixed(2);
+      applyBcvExchangeRate(state.euroRate, showToastOnSuccess);
+    } else if (fetchedRate && fetchedRate > 0) {
       liveBcvRate = fetchedRate;
-      if (lbl) lbl.textContent = `${fmt(liveBcvRate, 2)} Bs`;
-      applyBcvExchangeRate(liveBcvRate, showToastOnSuccess);
+      const calcEur = round2(fetchedRate * 1.085);
+      state.euroRate = calcEur;
+      state.exchangeRate = calcEur;
+      if (lblEur) lblEur.textContent = `${fmt(state.euroRate, 2)} Bs/€`;
+      applyBcvExchangeRate(state.euroRate, showToastOnSuccess);
     } else {
-      if (lbl && !liveBcvRate) lbl.textContent = `${fmt(state.exchangeRate, 2)} Bs`;
+      if (lblEur) lblEur.textContent = `${fmt(state.euroRate || state.exchangeRate, 2)} Bs/€`;
+      renderCierreView();
     }
   }
 
   function applyBcvExchangeRate(newRate, notify = true) {
     if (!newRate || newRate <= 0) return;
+    state.euroRate = round2(newRate);
     state.exchangeRate = round2(newRate);
     const inp = document.getElementById('global-rate-input');
     if (inp) inp.value = state.exchangeRate.toFixed(2);
+    const eurInp = document.getElementById('global-euro-rate-input');
+    if (eurInp) eurInp.value = Number(state.euroRate).toFixed(2);
     const bcvBtn = document.getElementById('btn-rate-bcv');
     if (bcvBtn) bcvBtn.classList.add('active');
     saveState();
     updateLiveTotal();
     renderCajaDebtSection();
     renderSalesTable();
+    renderCierreView();
     renderClientsView();
     renderInventoryView();
     renderReportsView();
     if (notify) {
-      toast(`Tasa Oficial BCV activada: ${fmt(state.exchangeRate, 2)} Bs/$`);
+      toast(`Tasa Oficial Euro BCV activa en todo el sistema: ${fmt(state.euroRate, 2)} Bs/€`);
     }
   }
 
   function renderAll() {
     ensureClientsItemizedDebt();
+    if (!Number(state.euroRate) || Number(state.euroRate) <= 0) {
+      state.euroRate = round2((Number(state.exchangeRate) || 1000) * 1.085);
+    }
+    // Garantizar que toda la tasa del sistema esté anclada al Euro BCV
+    state.exchangeRate = round2(Number(state.euroRate));
+    if (!state.euroAnchorMode) state.euroAnchorMode = 'PARITY_1_1';
     const inp = document.getElementById('global-rate-input');
     if (inp) inp.value = Number(state.exchangeRate).toFixed(2);
+    const eurInp = document.getElementById('global-euro-rate-input');
+    if (eurInp) eurInp.value = Number(state.euroRate).toFixed(2);
+    const lblEur = document.getElementById('lbl-rate-eur');
+    if (lblEur) lblEur.textContent = `${fmt(state.euroRate, 2)} Bs/€`;
     renderDatalists();
     renderQuickButtons();
     renderCartItems();
@@ -632,15 +736,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   }
 
   // ==========================================================================
-  // 2. CAJA DIARIA + SELECCIÓN MÚLTIPLE DE PRODUCTOS + COBRO DE DEUDAS
+  // 2. CAJA DIARIA + SELECCIÓN MÚLTIPLE DE PRODUCTOS + COBRO DE DEUDAS (EN BS Y TASA EURO)
   // ==========================================================================
   function renderDatalists() {
+    const rate = getEuroRate();
     document.getElementById('datalist-products').innerHTML = state.products
-      .map(p => `<option value="${esc(p.name)}">$${Number(p.price).toFixed(2)} (Stock: ${p.stock ?? 0})</option>`)
+      .map(p => `<option value="${esc(p.name)}">${fmt(round2((Number(p.price) || 0) * rate), 2)} Bs (€${Number(p.price).toFixed(2)} • Stock: ${p.stock ?? 0})</option>`)
       .join('');
 
     document.getElementById('datalist-clients').innerHTML = state.clients
-      .map(c => `<option value="${esc(c.name)}">${c.deuda > 0 ? 'Debe $' + fmt(c.deuda, 2) : ''}</option>`)
+      .map(c => `<option value="${esc(c.name)}">${c.deuda > 0 ? 'Debe ' + fmt(round2(c.deuda * rate), 2) + ' Bs (€' + fmt(c.deuda, 2) + ')' : ''}</option>`)
       .join('');
   }
 
@@ -671,9 +776,11 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   function renderQuickButtons() {
     const grid = document.getElementById('quick-products-grid');
     const quicks = state.products.filter(p => p.quick);
+    const rate = getEuroRate();
     grid.innerHTML = quicks
       .map(p => {
         const inCart = cartItems.find(it => it.product.toUpperCase() === (p.name || '').toUpperCase());
+        const priceBs = round2((Number(p.price) || 0) * rate);
         return `
       <button type="button" class="q-btn ${inCart ? 'in-cart' : ''}" data-name="${esc(p.name)}" data-price="${p.price}">
         <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
@@ -681,7 +788,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           ${inCart ? `<span class="q-cart-badge">x${inCart.qty}</span>` : ''}
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-          <span>$${fmt(p.price, 2)}</span>
+          <span>${fmt(priceBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(p.price, 2)})</small></span>
           <small style="font-size:11px; color:var(--muted);">Stock: ${p.stock ?? 0}</small>
         </div>
       </button>
@@ -734,8 +841,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           <td>
             <input type="number" step="0.01" min="0" class="inline-price-input cart-price-inp" data-id="${it.id}" value="${Number(it.price).toFixed(2)}">
           </td>
-          <td><strong class="text-gold">$${fmt(subUsd, 2)}</strong></td>
-          <td><strong>${fmt(subBs, 2)} Bs</strong></td>
+          <td><strong class="text-gold">${fmt(subBs, 2)} Bs</strong></td>
+          <td><strong style="color:#93C5FD;">€${fmt(subUsd, 2)}</strong></td>
           <td>
             <button type="button" class="mini-btn cart-remove-btn" data-id="${it.id}" title="Quitar de la lista">
               <i class="fa-solid fa-xmark"></i>
@@ -821,10 +928,10 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     );
 
     const totalUsd = round2(cartUsd + manualUsd);
-    const rate = parseFloat(state.exchangeRate) || 1;
+    const rate = getEuroRate();
     const totalBs = round2(totalUsd * rate);
 
-    document.getElementById('display-total-usd').textContent = `$${fmt(totalUsd, 2)}`;
+    document.getElementById('display-total-usd').textContent = `€${fmt(totalUsd, 2)}`;
     document.getElementById('display-total-bs').textContent = `${fmt(totalBs, 2)} Bs`;
   }
 
@@ -905,7 +1012,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       candidates
         .map(({ client: c, info }) => {
           const tag = info.isFromDailySheetOnly ? 'Compra en Hoja Hoy' : 'Debe';
-          return `<option value="${c.id}" ${c.id === activeId ? 'selected' : ''}>${esc(c.name)} — ${tag}: $${fmt(info.amountUsd, 2)} (${fmt(round2(info.amountUsd * rate), 2)} Bs)</option>`;
+          return `<option value="${c.id}" ${c.id === activeId ? 'selected' : ''}>${esc(c.name)} — ${tag}: ${fmt(round2(info.amountUsd * rate), 2)} Bs (€${fmt(info.amountUsd, 2)})</option>`;
         })
         .join('');
 
@@ -923,7 +1030,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     const info = getClientPayableInfo(c);
     panel.classList.remove('hidden');
-    const rate = parseFloat(state.exchangeRate) || 1000;
+    const rate = getEuroRate();
     const totalDeudaUsd = round2(info.amountUsd);
     const totalDeudaBs = round2(totalDeudaUsd * rate);
 
@@ -932,7 +1039,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     if (badgeEl) {
       badgeEl.textContent = info.isFromDailySheetOnly ? 'COMPRA EN HOJA DIARIA' : totalDeudaUsd > 0 ? 'DEUDA PENDIENTE' : 'AL DÍA';
     }
-    document.getElementById('debt-total-usd').textContent = `$${fmt(totalDeudaUsd, 2)}`;
+    document.getElementById('debt-total-usd').textContent = `€${fmt(totalDeudaUsd, 2)}`;
     document.getElementById('debt-total-bs').textContent = `${fmt(totalDeudaBs, 2)} Bs`;
 
     const items = info.items.length
@@ -958,9 +1065,9 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           <td style="text-align:left; font-size:12px; color:var(--muted);">${esc(it.date || 'Pendiente')}</td>
           <td style="text-align:left;"><strong>${esc(it.product)}</strong></td>
           <td>${it.qty ?? 1}</td>
-          <td>$${fmt(it.price, 2)}</td>
-          <td><strong class="${subUsd < 0 ? 'text-green' : 'text-yellow'}">$${fmt(subUsd, 2)}</strong></td>
-          <td><strong>${fmt(subBs, 2)} Bs</strong></td>
+          <td>€${fmt(it.price, 2)}</td>
+          <td><strong class="${subUsd < 0 ? 'text-green' : 'text-yellow'}">€${fmt(subUsd, 2)}</strong></td>
+          <td><strong class="text-gold">${fmt(subBs, 2)} Bs</strong></td>
         </tr>
       `;
       })
@@ -1105,12 +1212,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
   function renderSalesTable() {
     const t = getTotals();
-    document.getElementById('sum-total-usd').textContent = `$${fmt(t.usd, 2)}`;
+    const rate = getEuroRate();
+    const totalVentasBs = round2(t.usd * rate);
+    const totalPendBs = round2(t.pendUsd * rate);
+
+    document.getElementById('sum-total-usd').textContent = `${fmt(totalVentasBs, 2)} Bs (€${fmt(t.usd, 2)})`;
     document.getElementById('sum-punto-bs').textContent = `${fmt(t.puntoBs, 2)} Bs`;
     document.getElementById('sum-pm-bs').textContent = `${fmt(t.pmBs, 2)} Bs`;
-    document.getElementById('sum-divisas-usd').textContent = `$${fmt(t.divUsd, 2)}`;
-    document.getElementById('sum-ef-zelle').textContent = `${fmt(t.efBs, 2)} Bs / $${fmt(t.zelleUsd, 2)}`;
-    document.getElementById('sum-pendiente-usd').textContent = `$${fmt(t.pendUsd, 2)}`;
+    document.getElementById('sum-divisas-usd').textContent = `€${fmt(t.divUsd, 2)} (${fmt(round2(t.divUsd * rate), 2)} Bs)`;
+    document.getElementById('sum-ef-zelle').textContent = `${fmt(t.efBs, 2)} Bs / €${fmt(t.zelleUsd, 2)}`;
+    document.getElementById('sum-pendiente-usd').textContent = `${fmt(totalPendBs, 2)} Bs (€${fmt(t.pendUsd, 2)})`;
 
     const search = (document.getElementById('search-sales').value || '').toLowerCase();
     const list = state.dailySales.filter(s => {
@@ -1120,44 +1231,48 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     const tbody = document.getElementById('sales-tbody');
     tbody.innerHTML = list
-      .map(
-        s => `
+      .map(s => {
+        const rowBs = round2((Number(s.totalUsd) || 0) * rate);
+        const unitBs = round2((Number(s.price) || 0) * rate);
+        const pendBs = round2((Number(s.pendienteUsd) || 0) * rate);
+        const abonBs = round2((Number(s.abonadoUsd) || 0) * rate);
+        return `
       <tr class="${s.highlight ? 'row-yellow' : ''}">
         <td style="text-align:left;"><strong>${esc(s.product)}</strong></td>
         <td>${s.qty ?? ''}</td>
-        <td>$${fmt(s.price, 2)}</td>
-        <td><strong>$${fmt(s.totalUsd, 2)}</strong></td>
-        <td>$${fmt(s.totalConsumoUsd || s.totalUsd, 2)}</td>
-        <td>${s.pagoMovilBs > 0 ? fmt(s.pagoMovilBs, 2) : ''}</td>
-        <td>${s.divisasUsd > 0 ? '$' + fmt(s.divisasUsd, 2) : ''}</td>
-        <td>${s.efectivoBs > 0 ? fmt(s.efectivoBs, 2) : ''}</td>
-        <td>${s.puntoBs > 0 ? fmt(s.puntoBs, 2) : ''}</td>
-        <td>${s.zelleUsd > 0 ? '$' + fmt(s.zelleUsd, 2) : ''}</td>
+        <td>${fmt(unitBs, 2)} Bs <small style="opacity:0.8;">(€${fmt(s.price, 2)})</small></td>
+        <td><strong>${fmt(rowBs, 2)} Bs</strong></td>
+        <td><strong style="color:#93C5FD;">€${fmt(s.totalUsd, 2)}</strong></td>
+        <td>${s.pagoMovilBs > 0 ? fmt(s.pagoMovilBs, 2) + ' Bs' : ''}</td>
+        <td>${s.divisasUsd > 0 ? '€' + fmt(s.divisasUsd, 2) : ''}</td>
+        <td>${s.efectivoBs > 0 ? fmt(s.efectivoBs, 2) + ' Bs' : ''}</td>
+        <td>${s.puntoBs > 0 ? fmt(s.puntoBs, 2) + ' Bs' : ''}</td>
+        <td>${s.zelleUsd > 0 ? '€' + fmt(s.zelleUsd, 2) : ''}</td>
         <td style="text-align:left;"><strong>${esc(s.client || '')}</strong></td>
-        <td>${s.pendienteUsd > 0 ? '$' + fmt(s.pendienteUsd, 2) : ''}</td>
-        <td>${s.abonadoUsd > 0 ? '$' + fmt(s.abonadoUsd, 2) : ''}</td>
+        <td>${s.pendienteUsd > 0 ? fmt(pendBs, 2) + ' Bs (€' + fmt(s.pendienteUsd, 2) + ')' : ''}</td>
+        <td>${s.abonadoUsd > 0 ? fmt(abonBs, 2) + ' Bs (€' + fmt(s.abonadoUsd, 2) + ')' : ''}</td>
         <td>
           <button type="button" class="mini-btn btn-hl" data-id="${s.id}" title="Resaltar Amarillo"><i class="fa-solid fa-highlighter"></i></button>
           <button type="button" class="mini-btn btn-del" data-id="${s.id}" title="Borrar"><i class="fa-solid fa-trash"></i></button>
         </td>
       </tr>
-    `
-      )
+    `;
+      })
       .join('');
 
     document.getElementById('sales-tfoot').innerHTML = `
       <tr>
-        <td colspan="3" style="text-align:left;">TOTALES DEL DÍA (${state.dailySales.length} registros)</td>
-        <td>$${fmt(t.usd, 2)}</td>
-        <td>$${fmt(t.usd, 2)}</td>
+        <td colspan="3" style="text-align:left;">TOTALES DEL DÍA EN BOLÍVARES Y EUROS (${state.dailySales.length} registros)</td>
+        <td>${fmt(totalVentasBs, 2)} Bs</td>
+        <td>€${fmt(t.usd, 2)}</td>
         <td>${fmt(t.pmBs, 2)} Bs</td>
-        <td>$${fmt(t.divUsd, 2)}</td>
+        <td>€${fmt(t.divUsd, 2)}</td>
         <td>${fmt(t.efBs, 2)} Bs</td>
         <td>${fmt(t.puntoBs, 2)} Bs</td>
-        <td>$${fmt(t.zelleUsd, 2)}</td>
+        <td>€${fmt(t.zelleUsd, 2)}</td>
         <td></td>
-        <td>$${fmt(t.pendUsd, 2)}</td>
-        <td>$${fmt(t.abonUsd, 2)}</td>
+        <td>${fmt(totalPendBs, 2)} Bs (€${fmt(t.pendUsd, 2)})</td>
+        <td>${fmt(round2(t.abonUsd * rate), 2)} Bs (€${fmt(t.abonUsd, 2)})</td>
         <td></td>
       </tr>
     `;
@@ -1200,50 +1315,757 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         toast('Registro eliminado y stock/cuenta actualizado');
       });
     });
+
+    renderCajaEuroRenglon();
   }
 
   // ==========================================================================
-  // 3. CIERRE DE CAJA
+  // 3. CIERRES DIARIO, SEMANAL Y MENSUAL ANCLADOS AL EURO (€ BCV)
   // ==========================================================================
+  function getUsdRate() {
+    return parseFloat(state.exchangeRate) || 1000;
+  }
+
+  function getEuroRate() {
+    const eur = parseFloat(state.euroRate);
+    if (eur && eur > 0) return round2(eur);
+    return round2(getUsdRate() * 1.085);
+  }
+
+  // Extrae fecha/mes/timestamp de un cierre guardado
+  function parseClosureDateInfo(c) {
+    if (c.timestamp && Number(c.timestamp) > 0) {
+      const d = new Date(Number(c.timestamp));
+      if (!isNaN(d.getTime())) {
+        return {
+          ts: d.getTime(),
+          isoDate: c.isoDate || d.toISOString().slice(0, 10),
+          yearMonth: c.yearMonth || d.toISOString().slice(0, 7)
+        };
+      }
+    }
+    if (c.id && c.id.startsWith('cl-')) {
+      const parts = c.id.split('-');
+      const num = parseInt(parts[1], 10);
+      if (!isNaN(num) && num > 1000000000000) {
+        const d = new Date(num);
+        return {
+          ts: d.getTime(),
+          isoDate: c.isoDate || d.toISOString().slice(0, 10),
+          yearMonth: c.yearMonth || d.toISOString().slice(0, 7)
+        };
+      }
+    }
+    const now = new Date();
+    return {
+      ts: now.getTime(),
+      isoDate: c.isoDate || now.toISOString().slice(0, 10),
+      yearMonth: c.yearMonth || now.toISOString().slice(0, 7)
+    };
+  }
+
+  // Calcula todos los montos en Euros (€ BCV), Bolívares (Bs) y Dólares ($)
+  function enrichTotalsWithEuro(rawTotals, customEuroRate = null, customUsdRate = null) {
+    const euroRate = customEuroRate && customEuroRate > 0 ? round2(customEuroRate) : getEuroRate();
+    const usdRate = customUsdRate && customUsdRate > 0 ? round2(customUsdRate) : getUsdRate();
+    const mode = state.euroAnchorMode || 'BCV_CONVERT';
+
+    const usd = round2(Number(rawTotals.usd) || 0);
+    const puntoBs = round2(Number(rawTotals.puntoBs) || 0);
+    const pmBs = round2(Number(rawTotals.pmBs) || 0);
+    const efBs = round2(Number(rawTotals.efBs) || 0);
+    const divUsd = round2(Number(rawTotals.divUsd) || 0);
+    const zelleUsd = round2(Number(rawTotals.zelleUsd) || 0);
+    const pendUsd = round2(Number(rawTotals.pendUsd) || 0);
+    const abonUsd = round2(Number(rawTotals.abonUsd) || 0);
+
+    const totalBs = round2(puntoBs + pmBs + efBs);
+    const totalDivUsd = round2(divUsd + zelleUsd);
+
+    const bsToEur = valBs => (euroRate > 0 ? round2((Number(valBs) || 0) / euroRate) : 0);
+    const usdToEur = valUsd => {
+      const v = Number(valUsd) || 0;
+      if (mode === 'PARITY_1_1') return round2(v);
+      return euroRate > 0 ? round2((v * usdRate) / euroRate) : 0;
+    };
+
+    const eur = mode === 'PARITY_1_1' ? round2(usd) : usdToEur(usd);
+    const parityBs = round2(usd * euroRate);
+    const convertedBs = round2(usd * usdRate);
+    const anchoredBs = mode === 'PARITY_1_1' ? parityBs : convertedBs;
+
+    return {
+      usd,
+      eur,
+      anchoredBs,
+      parityBs,
+      convertedBs,
+      totalBs,
+      totalBsInEur: bsToEur(totalBs),
+      totalDivUsd,
+      totalDivInEur: usdToEur(totalDivUsd),
+      puntoBs,
+      puntoEur: bsToEur(puntoBs),
+      pmBs,
+      pmEur: bsToEur(pmBs),
+      efBs,
+      efEur: bsToEur(efBs),
+      divUsd,
+      divEur: usdToEur(divUsd),
+      zelleUsd,
+      zelleEur: usdToEur(zelleUsd),
+      pendUsd,
+      pendEur: usdToEur(pendUsd),
+      abonUsd,
+      abonEur: usdToEur(abonUsd),
+      euroRate,
+      usdRate,
+      mode
+    };
+  }
+
+  function formatMonthLabel(ym) {
+    if (!ym || !ym.includes('-')) return 'Mes Actual';
+    const [y, m] = ym.split('-');
+    const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const idx = Math.max(0, Math.min(11, parseInt(m, 10) - 1));
+    return `${names[idx]} ${y}`;
+  }
+
+  // Obtiene el resumen completo para 'DIARIO', 'SEMANAL' o 'MENSUAL' anclado al Euro BCV
+  function getClosurePeriodSummary(periodType = 'DIARIO', selectedMonthStr = null) {
+    const now = new Date();
+    const todayIso = now.toISOString().slice(0, 10);
+    const currentYm = now.toISOString().slice(0, 7);
+    const targetYm = selectedMonthStr || document.getElementById('cierre-month-picker')?.value || currentYm;
+    const liveTotals = getTotals();
+    const hasLiveSales = state.dailySales.length > 0 && (liveTotals.usd > 0 || liveTotals.puntoBs > 0 || liveTotals.pmBs > 0 || liveTotals.efBs > 0 || liveTotals.divUsd > 0 || liveTotals.zelleUsd > 0 || liveTotals.abonUsd > 0);
+
+    const dailyClosures = (state.closures || []).filter(c => (c.tipo || 'DIARIO') === 'DIARIO');
+
+    if (periodType === 'DIARIO') {
+      const enriched = enrichTotalsWithEuro(liveTotals);
+      const daysBreakdown = [
+        {
+          label: `Turno Actual (${now.toLocaleDateString('es-VE')})`,
+          tipo: 'DIARIO (EN VIVO)',
+          eur: enriched.eur,
+          usd: enriched.usd,
+          totalBs: enriched.totalBs,
+          divZelleUsd: enriched.totalDivUsd,
+          euroRate: enriched.euroRate
+        }
+      ];
+      return {
+        periodType: 'DIARIO',
+        title: '1. CIERRE DIARIO (HOY)',
+        badgeClass: '',
+        periodLabel: `Hoy (${now.toLocaleDateString('es-VE')})`,
+        opsCount: `${state.dailySales.length} ventas en hoja`,
+        daysBreakdown,
+        totals: enriched
+      };
+    }
+
+    if (periodType === 'SEMANAL') {
+      const sevenDaysAgoTs = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+      const weekClosures = dailyClosures.filter(c => {
+        const info = parseClosureDateInfo(c);
+        return info.ts >= sevenDaysAgoTs;
+      });
+
+      const acc = { usd: 0, puntoBs: 0, pmBs: 0, efBs: 0, divUsd: 0, zelleUsd: 0, pendUsd: 0, abonUsd: 0 };
+      const daysBreakdown = [];
+
+      // Incluir turno actual en vivo si tiene movimientos
+      if (hasLiveSales) {
+        acc.usd = round2(acc.usd + liveTotals.usd);
+        acc.puntoBs = round2(acc.puntoBs + liveTotals.puntoBs);
+        acc.pmBs = round2(acc.pmBs + liveTotals.pmBs);
+        acc.efBs = round2(acc.efBs + liveTotals.efBs);
+        acc.divUsd = round2(acc.divUsd + liveTotals.divUsd);
+        acc.zelleUsd = round2(acc.zelleUsd + liveTotals.zelleUsd);
+        acc.pendUsd = round2(acc.pendUsd + liveTotals.pendUsd);
+        acc.abonUsd = round2(acc.abonUsd + liveTotals.abonUsd);
+
+        const liveEnr = enrichTotalsWithEuro(liveTotals);
+        daysBreakdown.push({
+          label: `Hoy — Turno Actual en Vivo (${now.toLocaleDateString('es-VE')})`,
+          tipo: 'TURNO ACTUAL',
+          eur: liveEnr.eur,
+          usd: liveEnr.usd,
+          totalBs: liveEnr.totalBs,
+          divZelleUsd: liveEnr.totalDivUsd,
+          euroRate: liveEnr.euroRate
+        });
+      }
+
+      weekClosures.forEach(c => {
+        acc.usd = round2(acc.usd + (Number(c.totalUsd) || 0));
+        acc.puntoBs = round2(acc.puntoBs + (Number(c.puntoBs) || 0));
+        acc.pmBs = round2(acc.pmBs + (Number(c.pmBs) || 0));
+        acc.efBs = round2(acc.efBs + (Number(c.efBs) || 0));
+        acc.divUsd = round2(acc.divUsd + (Number(c.divUsd) || 0));
+        acc.zelleUsd = round2(acc.zelleUsd + (Number(c.zelleUsd) || 0));
+        acc.pendUsd = round2(acc.pendUsd + (Number(c.pendUsd) || 0));
+        acc.abonUsd = round2(acc.abonUsd + (Number(c.abonUsd) || 0));
+
+        const cEnr = enrichTotalsWithEuro(
+          {
+            usd: c.totalUsd,
+            puntoBs: c.puntoBs,
+            pmBs: c.pmBs,
+            efBs: c.efBs,
+            divUsd: c.divUsd,
+            zelleUsd: c.zelleUsd,
+            pendUsd: c.pendUsd,
+            abonUsd: c.abonUsd
+          },
+          c.euroRate,
+          c.usdRate
+        );
+        daysBreakdown.push({
+          label: c.date || 'Cierre Guardado',
+          tipo: 'CIERRE DIARIO',
+          eur: Number(c.totalEur) > 0 ? round2(c.totalEur) : cEnr.eur,
+          usd: round2(Number(c.totalUsd) || 0),
+          totalBs: round2((Number(c.puntoBs) || 0) + (Number(c.pmBs) || 0) + (Number(c.efBs) || 0)),
+          divZelleUsd: round2((Number(c.divUsd) || 0) + (Number(c.zelleUsd) || 0)),
+          euroRate: Number(c.euroRate) > 0 ? round2(c.euroRate) : getEuroRate()
+        });
+      });
+
+      const startWeekDate = new Date(sevenDaysAgoTs).toLocaleDateString('es-VE');
+      const endWeekDate = now.toLocaleDateString('es-VE');
+      const enriched = enrichTotalsWithEuro(acc);
+
+      return {
+        periodType: 'SEMANAL',
+        title: '2. CIERRE SEMANAL (7 DÍAS)',
+        badgeClass: 'semanal',
+        periodLabel: `Semana (${startWeekDate} al ${endWeekDate})`,
+        opsCount: `${daysBreakdown.length} jornadas en la semana`,
+        daysBreakdown,
+        totals: enriched
+      };
+    }
+
+    // MENSUAL
+    const monthClosures = dailyClosures.filter(c => {
+      const info = parseClosureDateInfo(c);
+      return info.yearMonth === targetYm;
+    });
+
+    const accMonth = { usd: 0, puntoBs: 0, pmBs: 0, efBs: 0, divUsd: 0, zelleUsd: 0, pendUsd: 0, abonUsd: 0 };
+    const monthDaysBreakdown = [];
+
+    if (targetYm === currentYm && hasLiveSales) {
+      accMonth.usd = round2(accMonth.usd + liveTotals.usd);
+      accMonth.puntoBs = round2(accMonth.puntoBs + liveTotals.puntoBs);
+      accMonth.pmBs = round2(accMonth.pmBs + liveTotals.pmBs);
+      accMonth.efBs = round2(accMonth.efBs + liveTotals.efBs);
+      accMonth.divUsd = round2(accMonth.divUsd + liveTotals.divUsd);
+      accMonth.zelleUsd = round2(accMonth.zelleUsd + liveTotals.zelleUsd);
+      accMonth.pendUsd = round2(accMonth.pendUsd + liveTotals.pendUsd);
+      accMonth.abonUsd = round2(accMonth.abonUsd + liveTotals.abonUsd);
+
+      const liveEnr = enrichTotalsWithEuro(liveTotals);
+      monthDaysBreakdown.push({
+        label: `Hoy — Turno Actual en Vivo (${todayIso})`,
+        tipo: 'TURNO ACTUAL',
+        eur: liveEnr.eur,
+        usd: liveEnr.usd,
+        totalBs: liveEnr.totalBs,
+        divZelleUsd: liveEnr.totalDivUsd,
+        euroRate: liveEnr.euroRate
+      });
+    }
+
+    monthClosures.forEach(c => {
+      accMonth.usd = round2(accMonth.usd + (Number(c.totalUsd) || 0));
+      accMonth.puntoBs = round2(accMonth.puntoBs + (Number(c.puntoBs) || 0));
+      accMonth.pmBs = round2(accMonth.pmBs + (Number(c.pmBs) || 0));
+      accMonth.efBs = round2(accMonth.efBs + (Number(c.efBs) || 0));
+      accMonth.divUsd = round2(accMonth.divUsd + (Number(c.divUsd) || 0));
+      accMonth.zelleUsd = round2(accMonth.zelleUsd + (Number(c.zelleUsd) || 0));
+      accMonth.pendUsd = round2(accMonth.pendUsd + (Number(c.pendUsd) || 0));
+      accMonth.abonUsd = round2(accMonth.abonUsd + (Number(c.abonUsd) || 0));
+
+      const cEnr = enrichTotalsWithEuro(
+        {
+          usd: c.totalUsd,
+          puntoBs: c.puntoBs,
+          pmBs: c.pmBs,
+          efBs: c.efBs,
+          divUsd: c.divUsd,
+          zelleUsd: c.zelleUsd,
+          pendUsd: c.pendUsd,
+          abonUsd: c.abonUsd
+        },
+        c.euroRate,
+        c.usdRate
+      );
+      monthDaysBreakdown.push({
+        label: c.date || 'Cierre Guardado',
+        tipo: 'CIERRE DIARIO',
+        eur: Number(c.totalEur) > 0 ? round2(c.totalEur) : cEnr.eur,
+        usd: round2(Number(c.totalUsd) || 0),
+        totalBs: round2((Number(c.puntoBs) || 0) + (Number(c.pmBs) || 0) + (Number(c.efBs) || 0)),
+        divZelleUsd: round2((Number(c.divUsd) || 0) + (Number(c.zelleUsd) || 0)),
+        euroRate: Number(c.euroRate) > 0 ? round2(c.euroRate) : getEuroRate()
+      });
+    });
+
+    const enrichedMonth = enrichTotalsWithEuro(accMonth);
+    return {
+      periodType: 'MENSUAL',
+      title: '3. CIERRE MENSUAL (MES)',
+      badgeClass: 'mensual',
+      periodLabel: formatMonthLabel(targetYm),
+      opsCount: `${monthDaysBreakdown.length} jornadas en el mes`,
+      daysBreakdown: monthDaysBreakdown,
+      totals: enrichedMonth
+    };
+  }
+
+  // Renderiza el Renglón de Cierres Diario, Semanal y Mensual Anclado al Euro dentro de 1. Caja Diaria
+  function renderCajaEuroRenglon() {
+    const tbody = document.getElementById('caja-euro-renglon-tbody');
+    const rateLbl = document.getElementById('caja-euro-rate-lbl');
+    if (rateLbl) rateLbl.textContent = `${fmt(getEuroRate(), 2)} Bs/€`;
+    if (!tbody) return;
+
+    const periods = [
+      getClosurePeriodSummary('DIARIO'),
+      getClosurePeriodSummary('SEMANAL'),
+      getClosurePeriodSummary('MENSUAL')
+    ];
+
+    tbody.innerHTML = periods
+      .map(p => {
+        const t = p.totals;
+        const divBs = round2(t.totalDivInEur * t.euroRate);
+        const pendBs = round2(t.pendEur * t.euroRate);
+        const abonBs = round2(t.abonEur * t.euroRate);
+        return `
+        <tr>
+          <td style="text-align:left;">
+            <span class="euro-badge-pill ${p.badgeClass}">${esc(p.title)}</span>
+            <small style="display:block; color:var(--muted); margin-top:2px;">${esc(p.periodLabel)} • ${esc(p.opsCount)}</small>
+          </td>
+          <td><strong class="text-gold" style="font-size:15.5px;">${fmt(t.anchoredBs, 2)} Bs</strong></td>
+          <td><strong style="color:#93C5FD; font-size:15px;">€${fmt(t.eur, 2)}</strong></td>
+          <td>${fmt(t.puntoBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.puntoEur, 2)})</small></td>
+          <td>${fmt(t.pmBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.pmEur, 2)})</small></td>
+          <td>${fmt(t.efBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.efEur, 2)})</small></td>
+          <td>${fmt(divBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.totalDivInEur, 2)})</small></td>
+          <td>
+            <span class="text-yellow" title="Fiado Pendiente">${fmt(pendBs, 2)} Bs (€${fmt(t.pendEur, 2)})</span> /
+            <span class="text-green" title="Abonos Cobrados">${fmt(abonBs, 2)} Bs (€${fmt(t.abonEur, 2)})</span>
+          </td>
+          <td>
+            <div style="display:flex; gap:5px; justify-content:center;">
+              <button type="button" class="btn-gold btn-quick-save-closure" data-period="${p.periodType}" style="padding:5px 10px; font-size:11.5px;" title="Guardar ${p.title} en Bolívares Anclado al Euro">
+                <i class="fa-solid fa-check"></i> Cerrar
+              </button>
+              <button type="button" class="mini-btn btn-quick-print-closure" data-period="${p.periodType}" title="Imprimir PDF de ${p.title} en Bs y Euros">
+                <i class="fa-solid fa-print"></i> PDF €
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      })
+      .join('');
+
+    tbody.querySelectorAll('.btn-quick-save-closure').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const per = btn.getAttribute('data-period');
+        saveClosureByPeriod(per, `Cierre ${per} registrado desde Caja Diaria (Anclado a €${fmt(getEuroRate(), 2)} Bs/€)`);
+      });
+    });
+
+    tbody.querySelectorAll('.btn-quick-print-closure').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const per = btn.getAttribute('data-period');
+        openPrintableReport(`EURO_CLOSURE_${per}`);
+      });
+    });
+  }
+
+  function saveClosureByPeriod(periodType = 'DIARIO', customNote = '') {
+    const summary = getClosurePeriodSummary(periodType);
+    const t = summary.totals;
+    const newClosure = {
+      id: `cl-${Date.now()}`,
+      tipo: periodType,
+      timestamp: Date.now(),
+      isoDate: new Date().toISOString().slice(0, 10),
+      yearMonth: new Date().toISOString().slice(0, 7),
+      date: new Date().toLocaleString('es-VE'),
+      periodLabel: summary.periodLabel,
+      cashier: currentUser ? currentUser.fullName : 'dzara',
+      euroRate: t.euroRate,
+      usdRate: t.usdRate,
+      totalEur: t.eur,
+      totalAnchoredBs: t.anchoredBs,
+      totalUsd: t.usd,
+      puntoBs: t.puntoBs,
+      pmBs: t.pmBs,
+      efBs: t.efBs,
+      divUsd: t.divUsd,
+      zelleUsd: t.zelleUsd,
+      pendUsd: t.pendUsd,
+      abonUsd: t.abonUsd,
+      nota: customNote
+    };
+
+    state.closures.unshift(newClosure);
+    saveState();
+    renderCajaEuroRenglon();
+    renderCierreView();
+    toast(`¡Cierre ${periodType} guardado! Total Anclado: €${fmt(t.eur, 2)} (${fmt(t.anchoredBs, 2)} Bs)`);
+  }
+
+  function exportClosuresToExcel() {
+    const summaries = [
+      getClosurePeriodSummary('DIARIO'),
+      getClosurePeriodSummary('SEMANAL'),
+      getClosurePeriodSummary('MENSUAL')
+    ];
+    const headers = [
+      'RENGLON DE CIERRE',
+      'PERIODO / FECHA',
+      'TASA EURO BCV (Bs/€)',
+      'TASA DOLAR BCV (Bs/$)',
+      'TOTAL ANCLADO EUROS (€)',
+      'TOTAL BOLIVARES ANCLADO (Bs)',
+      'TOTAL DOLARES ($)',
+      'PUNTO (Bs)',
+      'PUNTO (€)',
+      'PAGO MOVIL (Bs)',
+      'PAGO MOVIL (€)',
+      'EFECTIVO (Bs)',
+      'EFECTIVO (€)',
+      'DIVISAS ($)',
+      'ZELLE ($)',
+      'FIADO PENDIENTE (€)',
+      'ABONOS COBRADOS (€)'
+    ];
+    const summaryRows = summaries.map(s => {
+      const t = s.totals;
+      return [
+        s.title,
+        s.periodLabel,
+        t.euroRate,
+        t.usdRate,
+        t.eur,
+        t.anchoredBs,
+        t.usd,
+        t.puntoBs,
+        t.puntoEur,
+        t.pmBs,
+        t.pmEur,
+        t.efBs,
+        t.efEur,
+        t.divUsd,
+        t.zelleUsd,
+        t.pendEur,
+        t.abonEur
+      ];
+    });
+
+    const historyRows = (state.closures || []).map(c => {
+      const enr = enrichTotalsWithEuro(
+        {
+          usd: c.totalUsd,
+          puntoBs: c.puntoBs,
+          pmBs: c.pmBs,
+          efBs: c.efBs,
+          divUsd: c.divUsd,
+          zelleUsd: c.zelleUsd,
+          pendUsd: c.pendUsd,
+          abonUsd: c.abonUsd
+        },
+        c.euroRate,
+        c.usdRate
+      );
+      return [
+        `HISTORIAL: CIERRE ${c.tipo || 'DIARIO'}`,
+        `${c.date} (${c.periodLabel || ''})`,
+        enr.euroRate,
+        enr.usdRate,
+        c.totalEur || enr.eur,
+        c.totalAnchoredBs || enr.anchoredBs,
+        c.totalUsd,
+        c.puntoBs,
+        enr.puntoEur,
+        c.pmBs,
+        enr.pmEur,
+        c.efBs,
+        enr.efEur,
+        c.divUsd,
+        c.zelleUsd,
+        enr.pendEur,
+        enr.abonEur
+      ];
+    });
+
+    const csv = '\uFEFF' + [headers, ...summaryRows, ...historyRows].map(r => r.map(v => `"${v ?? ''}"`).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    a.download = `Cierres_Diario_Semanal_Mensual_Euro_Atoz.csv`;
+    a.click();
+  }
+
   function renderCierreView() {
-    const t = getTotals();
-    const totalBs = round2(t.puntoBs + t.pmBs + t.efBs);
-    const totalDiv = round2(t.divUsd + t.zelleUsd);
+    const euroRate = getEuroRate();
+    const usdRate = getUsdRate();
+    const ratio = usdRate > 0 ? round2(euroRate / usdRate) : 1.08;
 
-    document.getElementById('cierre-total-usd').textContent = `$${fmt(t.usd, 2)}`;
-    document.getElementById('cierre-total-bs').textContent = `${fmt(totalBs, 2)} Bs`;
-    document.getElementById('cierre-total-divisas').textContent = `$${fmt(totalDiv, 2)}`;
+    const eurDisp = document.getElementById('cierre-euro-rate-display');
+    const usdDisp = document.getElementById('cierre-usd-rate-display');
+    const ratioDisp = document.getElementById('cierre-eur-usd-ratio');
+    const modeSel = document.getElementById('cierre-euro-mode-select');
+    const modeHint = document.getElementById('cierre-euro-mode-hint');
 
-    document.getElementById('cierre-line-punto').textContent = `${fmt(t.puntoBs, 2)} Bs`;
-    document.getElementById('cierre-line-pm').textContent = `${fmt(t.pmBs, 2)} Bs`;
-    document.getElementById('cierre-line-efbs').textContent = `${fmt(t.efBs, 2)} Bs`;
-    document.getElementById('cierre-line-divisas').textContent = `$${fmt(t.divUsd, 2)}`;
-    document.getElementById('cierre-line-zelle').textContent = `$${fmt(t.zelleUsd, 2)}`;
-    document.getElementById('cierre-line-pendiente').textContent = `$${fmt(t.pendUsd, 2)}`;
-    document.getElementById('cierre-line-abonado').textContent = `$${fmt(t.abonUsd, 2)}`;
+    if (eurDisp) eurDisp.textContent = `${fmt(euroRate, 2)} Bs/€`;
+    if (usdDisp) usdDisp.textContent = `BOLÍVARES (Bs) ↔ EURO (€)`;
+    if (ratioDisp) ratioDisp.textContent = `1 € = ${fmt(euroRate, 2)} Bs (Tasa Oficial BCV)`;
+    if (modeSel) modeSel.value = state.euroAnchorMode || 'PARITY_1_1';
+    if (modeHint) {
+      modeHint.textContent = 'Todo el sistema opera en Bolívares (Bs) anclado a la Tasa Oficial del Euro BCV';
+    }
 
+    // 1. Renderizar Tabla Maestra con los 3 Renglones (Diario, Semanal y Mensual)
+    const masterTbody = document.getElementById('cierre-master-renglones-tbody');
+    const allPeriods = [
+      getClosurePeriodSummary('DIARIO'),
+      getClosurePeriodSummary('SEMANAL'),
+      getClosurePeriodSummary('MENSUAL')
+    ];
+
+    if (masterTbody) {
+      masterTbody.innerHTML = allPeriods
+        .map(p => {
+          const t = p.totals;
+          const isSelected = p.periodType === activeClosurePeriod;
+          const divBs = round2(t.totalDivInEur * t.euroRate);
+          const pendBs = round2(t.pendEur * t.euroRate);
+          const abonBs = round2(t.abonEur * t.euroRate);
+          return `
+          <tr style="${isSelected ? 'background:rgba(59,130,246,0.16);' : ''}">
+            <td style="text-align:left;">
+              <span class="euro-badge-pill ${p.badgeClass}">${esc(p.title)}</span>
+            </td>
+            <td>
+              <strong>${esc(p.periodLabel)}</strong>
+              <small style="display:block; color:var(--muted);">${esc(p.opsCount)}</small>
+            </td>
+            <td><strong class="text-gold" style="font-size:16px;">${fmt(t.anchoredBs, 2)} Bs</strong></td>
+            <td><strong style="color:#93C5FD; font-size:15.5px;">€${fmt(t.eur, 2)}</strong></td>
+            <td>${fmt(t.puntoBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.puntoEur, 2)})</small></td>
+            <td>${fmt(t.pmBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.pmEur, 2)})</small></td>
+            <td>${fmt(t.efBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.efEur, 2)})</small></td>
+            <td>${fmt(divBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.totalDivInEur, 2)})</small></td>
+            <td>
+              <span class="text-yellow">${fmt(pendBs, 2)} Bs (€${fmt(t.pendEur, 2)})</span> /
+              <span class="text-green">${fmt(abonBs, 2)} Bs (€${fmt(t.abonEur, 2)})</span>
+            </td>
+            <td>
+              <div style="display:flex; gap:5px; justify-content:center;">
+                <button type="button" class="mini-btn btn-master-view-period" data-period="${p.periodType}" title="Ver detalle abajo">
+                  <i class="fa-solid fa-eye"></i> Ver
+                </button>
+                <button type="button" class="btn-gold btn-master-save-period" data-period="${p.periodType}" style="padding:5px 10px; font-size:12px;">
+                  <i class="fa-solid fa-check"></i> Guardar
+                </button>
+                <button type="button" class="mini-btn btn-master-print-period" data-period="${p.periodType}" title="Imprimir PDF en Bs y Euros">
+                  <i class="fa-solid fa-print"></i> PDF €
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+        })
+        .join('');
+
+      masterTbody.querySelectorAll('.btn-master-view-period').forEach(btn => {
+        btn.addEventListener('click', () => {
+          activeClosurePeriod = btn.getAttribute('data-period') || 'DIARIO';
+          document.querySelectorAll('.period-tab-btn').forEach(b => {
+            b.classList.toggle('active', b.getAttribute('data-period') === activeClosurePeriod);
+          });
+          renderCierreView();
+        });
+      });
+
+      masterTbody.querySelectorAll('.btn-master-save-period').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const per = btn.getAttribute('data-period') || 'DIARIO';
+          saveClosureByPeriod(per, document.getElementById('cierre-nota')?.value.trim() || `Cierre ${per} anclado al Euro BCV`);
+        });
+      });
+
+      masterTbody.querySelectorAll('.btn-master-print-period').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const per = btn.getAttribute('data-period') || 'DIARIO';
+          openPrintableReport(`EURO_CLOSURE_${per}`);
+        });
+      });
+    }
+
+    // 2. Renderizar Detalle del Período Activo (DIARIO | SEMANAL | MENSUAL)
+    const activeSummary = allPeriods.find(x => x.periodType === activeClosurePeriod) || allPeriods[0];
+    const t = activeSummary.totals;
+
+    const titleMap = {
+      DIARIO: 'Cuadre y Cierre Diario Anclado al Euro (€ BCV)',
+      SEMANAL: 'Cuadre y Cierre Semanal (Últimos 7 Días) Anclado al Euro (€ BCV)',
+      MENSUAL: `Cuadre y Cierre Mensual (${activeSummary.periodLabel}) Anclado al Euro (€ BCV)`
+    };
+    const titleEl = document.getElementById('cierre-active-period-title');
+    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-euro-sign text-gold"></i> ${esc(titleMap[activeClosurePeriod])}`;
+    const subEl = document.getElementById('cierre-active-period-subtitle');
+    if (subEl) subEl.textContent = `${activeSummary.periodLabel} • ${activeSummary.opsCount} • Tasa Euro BCV: ${fmt(euroRate, 2)} Bs/€`;
+
+    const saveBtn = document.getElementById('btn-save-active-closure');
+    if (saveBtn) {
+      saveBtn.innerHTML = `<i class="fa-solid fa-check-double"></i> GUARDAR CIERRE ${activeClosurePeriod} (${fmt(t.anchoredBs, 2)} Bs / €${fmt(t.eur, 2)})`;
+    }
+
+    const eurEl = document.getElementById('cierre-total-eur');
+    if (eurEl) eurEl.textContent = `€${fmt(t.eur, 2)}`;
+    const eurSub = document.getElementById('cierre-total-eur-sub');
+    if (eurSub) eurSub.textContent = `Tasa Oficial Euro BCV: ${fmt(euroRate, 2)} Bs/€`;
+
+    document.getElementById('cierre-total-usd').textContent = `${fmt(t.anchoredBs, 2)} Bs`;
+    const opsSub = document.getElementById('cierre-ops-count-sub');
+    if (opsSub) opsSub.textContent = `${activeSummary.opsCount} • Equiv: €${fmt(t.eur, 2)}`;
+
+    document.getElementById('cierre-total-bs').textContent = `${fmt(t.totalBs, 2)} Bs`;
+    const bsEurSub = document.getElementById('cierre-total-bs-in-eur');
+    if (bsEurSub) bsEurSub.textContent = `Anclado en Euros: €${fmt(t.totalBsInEur, 2)}`;
+
+    const totalDivBs = round2(t.totalDivInEur * euroRate);
+    document.getElementById('cierre-total-divisas').textContent = `${fmt(totalDivBs, 2)} Bs`;
+    const divEurSub = document.getElementById('cierre-total-div-in-eur');
+    if (divEurSub) divEurSub.textContent = `Anclado en Euros: €${fmt(t.totalDivInEur, 2)}`;
+
+    document.getElementById('cierre-line-punto').textContent = `${fmt(t.puntoBs, 2)} Bs (€${fmt(t.puntoEur, 2)})`;
+    document.getElementById('cierre-line-pm').textContent = `${fmt(t.pmBs, 2)} Bs (€${fmt(t.pmEur, 2)})`;
+    document.getElementById('cierre-line-efbs').textContent = `${fmt(t.efBs, 2)} Bs (€${fmt(t.efEur, 2)})`;
+    document.getElementById('cierre-line-divisas').textContent = `${fmt(round2(t.divEur * euroRate), 2)} Bs (€${fmt(t.divEur, 2)})`;
+    document.getElementById('cierre-line-zelle').textContent = `${fmt(round2(t.zelleEur * euroRate), 2)} Bs (€${fmt(t.zelleEur, 2)})`;
+    document.getElementById('cierre-line-pendiente').textContent = `${fmt(round2(t.pendEur * euroRate), 2)} Bs (€${fmt(t.pendEur, 2)})`;
+    document.getElementById('cierre-line-abonado').textContent = `${fmt(round2(t.abonEur * euroRate), 2)} Bs (€${fmt(t.abonEur, 2)})`;
+
+    // Tabla de desglose de jornadas para Semanal / Mensual
+    const daysBox = document.getElementById('cierre-period-days-box');
+    const daysTbody = document.getElementById('cierre-period-days-tbody');
+    if (daysBox && daysTbody) {
+      if (activeClosurePeriod === 'DIARIO') {
+        daysBox.classList.add('hidden');
+      } else {
+        daysBox.classList.remove('hidden');
+        daysTbody.innerHTML = activeSummary.daysBreakdown.length
+          ? activeSummary.daysBreakdown
+              .map(
+                d => `
+              <tr>
+                <td style="text-align:left;"><strong>${esc(d.label)}</strong></td>
+                <td><span class="euro-badge-pill">${esc(d.tipo)}</span></td>
+                <td><strong style="color:#93C5FD;">€${fmt(d.eur, 2)}</strong></td>
+                <td><strong>$${fmt(d.usd, 2)}</strong></td>
+                <td>${fmt(d.totalBs, 2)} Bs</td>
+                <td>$${fmt(d.divZelleUsd, 2)}</td>
+                <td>${fmt(d.euroRate, 2)} Bs/€</td>
+              </tr>
+            `
+              )
+              .join('')
+          : `<tr><td colspan="7" class="hint">Aún no hay jornadas guardadas en este período.</td></tr>`;
+      }
+    }
+
+    // 3. Historial de Cierres Guardados (Filtrable por DIARIO, SEMANAL, MENSUAL)
     const clList = document.getElementById('closures-list');
-    if (!state.closures.length) {
-      clList.innerHTML = `<p class="hint">Aún no hay cierres guardados.</p>`;
+    const filterType = document.getElementById('filter-closures-type')?.value || 'ALL';
+    const filteredClosures = (state.closures || []).filter(c => {
+      const cType = c.tipo || 'DIARIO';
+      if (filterType !== 'ALL' && cType !== filterType) return false;
+      return true;
+    });
+
+    if (!filteredClosures.length) {
+      clList.innerHTML = `<p class="hint">No hay cierres guardados para este filtro.</p>`;
       return;
     }
 
-    clList.innerHTML = state.closures
-      .map(
-        c => `
+    clList.innerHTML = filteredClosures
+      .map(c => {
+        const cType = c.tipo || 'DIARIO';
+        const badgeCls = cType === 'SEMANAL' ? 'semanal' : cType === 'MENSUAL' ? 'mensual' : '';
+        const enr = enrichTotalsWithEuro(
+          {
+            usd: c.totalUsd,
+            puntoBs: c.puntoBs,
+            pmBs: c.pmBs,
+            efBs: c.efBs,
+            divUsd: c.divUsd,
+            zelleUsd: c.zelleUsd,
+            pendUsd: c.pendUsd,
+            abonUsd: c.abonUsd
+          },
+          c.euroRate,
+          c.usdRate
+        );
+        const eurVal = Number(c.totalEur) > 0 ? round2(c.totalEur) : enr.eur;
+        const bsVal = Number(c.totalAnchoredBs) > 0 ? round2(c.totalAnchoredBs) : enr.anchoredBs;
+        return `
       <div class="closure-item">
-        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-          <strong class="text-gold">${esc(c.date)}</strong>
-          <strong>Total: $${fmt(c.totalUsd, 2)}</strong>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
+          <div>
+            <span class="euro-badge-pill ${badgeCls}">CIERRE ${esc(cType)}</span>
+            <strong class="text-gold" style="margin-left:6px;">${esc(c.date)}</strong>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <strong style="color:#93C5FD; font-size:15px;">€${fmt(eurVal, 2)}</strong>
+            <strong>($${fmt(c.totalUsd, 2)} / ${fmt(bsVal, 2)} Bs)</strong>
+            <button type="button" class="mini-btn btn-print-saved-closure" data-id="${c.id}" title="Imprimir este cierre en PDF">
+              <i class="fa-solid fa-print"></i>
+            </button>
+            <button type="button" class="mini-btn btn-del-saved-closure" data-id="${c.id}" title="Eliminar cierre del historial">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
         </div>
-        <div style="font-size:13px; color:var(--muted);">
-          Cajero: ${esc(c.cashier)} • Punto: ${fmt(c.puntoBs, 2)} Bs • Pago Móvil: ${fmt(c.pmBs, 2)} Bs • Divisas: $${fmt(c.divUsd, 2)}
+        <div style="font-size:12.5px; color:var(--muted);">
+          ${c.periodLabel ? `Período: <strong>${esc(c.periodLabel)}</strong> • ` : ''}Cajero: ${esc(c.cashier)} • Tasa € BCV: ${fmt(enr.euroRate, 2)} Bs/€ • Punto: ${fmt(c.puntoBs, 2)} Bs • PM: ${fmt(c.pmBs, 2)} Bs • Divisas: $${fmt(c.divUsd, 2)}
         </div>
         ${c.nota ? `<div style="font-size:12.5px; margin-top:4px; color:var(--gold);">Nota: ${esc(c.nota)}</div>` : ''}
       </div>
-    `
-      )
+    `;
+      })
       .join('');
+
+    clList.querySelectorAll('.btn-print-saved-closure').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const found = state.closures.find(x => x.id === btn.getAttribute('data-id'));
+        if (found) openPrintableReport('SINGLE_SAVED_CLOSURE', found);
+      });
+    });
+
+    clList.querySelectorAll('.btn-del-saved-closure').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        state.closures = state.closures.filter(x => x.id !== id);
+        saveState();
+        renderCierreView();
+        renderCajaEuroRenglon();
+        toast('Cierre eliminado del historial');
+      });
+    });
   }
 
   // ==========================================================================
@@ -1259,8 +2081,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       sumFavor += Number(c.aFavor) || 0;
     });
 
-    document.getElementById('cli-sum-deuda').textContent = `$${fmt(sumDeuda, 2)}`;
-    document.getElementById('cli-sum-favor').textContent = `$${fmt(sumFavor, 2)}`;
+    document.getElementById('cli-sum-deuda').textContent = `${fmt(round2(sumDeuda * rate), 2)} Bs (€${fmt(sumDeuda, 2)})`;
+    document.getElementById('cli-sum-favor').textContent = `${fmt(round2(sumFavor * rate), 2)} Bs (€${fmt(sumFavor, 2)})`;
     document.getElementById('cli-sum-count').textContent = state.clients.length;
 
     const search = (document.getElementById('search-clients').value || '').toLowerCase();
@@ -1278,9 +2100,11 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       .map(c => {
         const deudaUsd = round2(Number(c.deuda) || 0);
         const deudaBs = round2(deudaUsd * rate);
+        const favorUsd = round2(Number(c.aFavor) || 0);
+        const favorBs = round2(favorUsd * rate);
         const itemsText =
           deudaUsd > 0 && Array.isArray(c.itemsPendientes) && c.itemsPendientes.length
-            ? c.itemsPendientes.map(it => `${it.qty || 1}x ${it.product} ($${fmt(it.totalUsd, 2)})`).join(' • ')
+            ? c.itemsPendientes.map(it => `${it.qty || 1}x ${it.product} (${fmt(round2((Number(it.totalUsd) || 0) * rate), 2)} Bs / €${fmt(it.totalUsd, 2)})`).join(' • ')
             : deudaUsd > 0
             ? 'Saldo pendiente en cuenta'
             : 'Al día (Sin deuda)';
@@ -1288,12 +2112,12 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         return `
       <tr>
         <td style="text-align:left;"><strong>${esc(c.name)}</strong></td>
-        <td>${deudaUsd > 0 ? `<strong class="text-yellow">$${fmt(deudaUsd, 2)}</strong>` : '$0,00'}</td>
-        <td>${deudaUsd > 0 ? `<strong>${fmt(deudaBs, 2)} Bs</strong>` : '0,00 Bs'}</td>
+        <td>${deudaUsd > 0 ? `<strong class="text-gold">${fmt(deudaBs, 2)} Bs</strong>` : '0,00 Bs'}</td>
+        <td>${deudaUsd > 0 ? `<strong class="text-yellow">€${fmt(deudaUsd, 2)}</strong>` : '€0,00'}</td>
         <td style="text-align:left; max-width:340px; overflow:hidden; text-overflow:ellipsis;" title="${esc(itemsText)}">
           <span style="font-size:12.5px; color:${deudaUsd > 0 ? '#FFF' : 'var(--muted)'};">${esc(itemsText)}</span>
         </td>
-        <td>${c.aFavor > 0 ? `<strong class="text-green">$${fmt(c.aFavor, 2)}</strong>` : '$0,00'}</td>
+        <td>${favorUsd > 0 ? `<strong class="text-green">${fmt(favorBs, 2)} Bs (€${fmt(favorUsd, 2)})</strong>` : '0,00 Bs'}</td>
         <td>
           <div style="display:flex; gap:6px; justify-content:center;">
             <button type="button" class="btn-gold btn-abonar" data-id="${c.id}" style="padding:6px 11px; font-size:12px;">
@@ -1945,6 +2769,158 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           </tbody>
         </table>
       `;
+    } else if (type === 'EURO_CLOSURE_ALL' || type === 'EURO_CLOSURE_DIARIO' || type === 'EURO_CLOSURE_SEMANAL' || type === 'EURO_CLOSURE_MENSUAL') {
+      const euroRate = getEuroRate();
+      const targetPeriods =
+        type === 'EURO_CLOSURE_ALL'
+          ? [getClosurePeriodSummary('DIARIO'), getClosurePeriodSummary('SEMANAL'), getClosurePeriodSummary('MENSUAL')]
+          : [getClosurePeriodSummary(type.replace('EURO_CLOSURE_', ''))];
+
+      const mainS = targetPeriods[0];
+      reportTitle =
+        type === 'EURO_CLOSURE_ALL'
+          ? 'REPORTE EJECUTIVO DE CIERRES DIARIO, SEMANAL Y MENSUAL — ANCLADO AL EURO (€ BCV)'
+          : `REPORTE OFICIAL DE ${mainS.title} — ANCLADO AL EURO (€ BCV)`;
+
+      summaryBoxesHtml = `
+        <div class="kpi-row">
+          <div class="kpi"><span>TASA EURO BCV OFICIAL</span><strong>${fmt(euroRate, 2)} Bs/€</strong></div>
+          <div class="kpi"><span>TASA DÓLAR BCV OFICIAL</span><strong>${fmt(rate, 2)} Bs/$</strong></div>
+          <div class="kpi"><span>TOTAL EN EUROS (${mainS.periodType})</span><strong>€${fmt(mainS.totals.eur, 2)}</strong></div>
+          <div class="kpi"><span>EQUIVALENTE EN BOLÍVARES</span><strong>${fmt(mainS.totals.anchoredBs, 2)} Bs</strong></div>
+          <div class="kpi"><span>TOTAL EN DÓLARES ($)</span><strong>$${fmt(mainS.totals.usd, 2)}</strong></div>
+        </div>
+      `;
+
+      tableHtml = `
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;">RENGLÓN DE CIERRE</th>
+              <th style="text-align:left;">PERÍODO</th>
+              <th>TOTAL EUROS (€ BCV)</th>
+              <th>TOTAL BOLÍVARES (Bs)</th>
+              <th>TOTAL DÓLARES ($)</th>
+              <th>PUNTO (Bs / €)</th>
+              <th>PAGO MÓVIL (Bs / €)</th>
+              <th>EFECTIVO (Bs / €)</th>
+              <th>DIVISAS + ZELLE ($ / €)</th>
+              <th>FIADOS / ABONOS (€)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${targetPeriods
+              .map(p => {
+                const pt = p.totals;
+                return `
+              <tr>
+                <td style="text-align:left;"><strong>${esc(p.title)}</strong></td>
+                <td style="text-align:left;">${esc(p.periodLabel)} (${esc(p.opsCount)})</td>
+                <td><strong>€${fmt(pt.eur, 2)}</strong></td>
+                <td><strong>${fmt(pt.anchoredBs, 2)} Bs</strong></td>
+                <td><strong>$${fmt(pt.usd, 2)}</strong></td>
+                <td>${fmt(pt.puntoBs, 2)} Bs (€${fmt(pt.puntoEur, 2)})</td>
+                <td>${fmt(pt.pmBs, 2)} Bs (€${fmt(pt.pmEur, 2)})</td>
+                <td>${fmt(pt.efBs, 2)} Bs (€${fmt(pt.efEur, 2)})</td>
+                <td>$${fmt(pt.totalDivUsd, 2)} (€${fmt(pt.totalDivInEur, 2)})</td>
+                <td>€${fmt(pt.pendEur, 2)} / €${fmt(pt.abonEur, 2)}</td>
+              </tr>
+            `;
+              })
+              .join('')}
+          </tbody>
+        </table>
+      `;
+
+      if (mainS.daysBreakdown && mainS.daysBreakdown.length > 0) {
+        tableHtml += `
+          <h3 style="color:#5B141E; margin: 16px 0 8px;">Desglose de Jornadas Incluidas (${esc(mainS.periodLabel)})</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th style="text-align:left;">FECHA / JORNADA</th>
+                <th>TIPO</th>
+                <th>TOTAL (€ BCV)</th>
+                <th>TOTAL ($)</th>
+                <th>COBRADO EN BS</th>
+                <th>DIVISAS + ZELLE ($)</th>
+                <th>TASA € BCV</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${mainS.daysBreakdown
+                .map(
+                  (d, idx) => `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td style="text-align:left;"><strong>${esc(d.label)}</strong></td>
+                  <td>${esc(d.tipo)}</td>
+                  <td><strong>€${fmt(d.eur, 2)}</strong></td>
+                  <td>$${fmt(d.usd, 2)}</td>
+                  <td>${fmt(d.totalBs, 2)} Bs</td>
+                  <td>$${fmt(d.divZelleUsd, 2)}</td>
+                  <td>${fmt(d.euroRate, 2)} Bs/€</td>
+                </tr>
+              `
+                )
+                .join('')}
+            </tbody>
+          </table>
+        `;
+      }
+    } else if (type === 'SINGLE_SAVED_CLOSURE' && optionalClient) {
+      const c = optionalClient;
+      const enr = enrichTotalsWithEuro(
+        {
+          usd: c.totalUsd,
+          puntoBs: c.puntoBs,
+          pmBs: c.pmBs,
+          efBs: c.efBs,
+          divUsd: c.divUsd,
+          zelleUsd: c.zelleUsd,
+          pendUsd: c.pendUsd,
+          abonUsd: c.abonUsd
+        },
+        c.euroRate,
+        c.usdRate
+      );
+      const eurVal = Number(c.totalEur) > 0 ? round2(c.totalEur) : enr.eur;
+      reportTitle = `COMPROBANTE DE CIERRE ${c.tipo || 'DIARIO'} ANCLADO AL EURO (€ BCV)`;
+      summaryBoxesHtml = `
+        <div class="kpi-row">
+          <div class="kpi"><span>FECHA / PERÍODO</span><strong>${esc(c.periodLabel || c.date)}</strong></div>
+          <div class="kpi"><span>TOTAL ANCLADO EN EUROS</span><strong>€${fmt(eurVal, 2)}</strong></div>
+          <div class="kpi"><span>TASA EURO BCV</span><strong>${fmt(enr.euroRate, 2)} Bs/€</strong></div>
+          <div class="kpi"><span>TOTAL EN BOLÍVARES</span><strong>${fmt(enr.anchoredBs, 2)} Bs</strong></div>
+          <div class="kpi"><span>TOTAL EN DÓLARES</span><strong>$${fmt(c.totalUsd, 2)}</strong></div>
+        </div>
+      `;
+      tableHtml = `
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left;">MÉTODO DE PAGO / RENGLÓN</th>
+              <th>MONTO ORIGINAL</th>
+              <th>EQUIVALENTE EN EUROS (€ BCV)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="text-align:left;"><strong>Punto de Venta (Bs)</strong></td><td>${fmt(c.puntoBs, 2)} Bs</td><td><strong>€${fmt(enr.puntoEur, 2)}</strong></td></tr>
+            <tr><td style="text-align:left;"><strong>Pago Móvil (Bs)</strong></td><td>${fmt(c.pmBs, 2)} Bs</td><td><strong>€${fmt(enr.pmEur, 2)}</strong></td></tr>
+            <tr><td style="text-align:left;"><strong>Efectivo Bolívares (Bs)</strong></td><td>${fmt(c.efBs, 2)} Bs</td><td><strong>€${fmt(enr.efEur, 2)}</strong></td></tr>
+            <tr><td style="text-align:left;"><strong>Divisas en Efectivo ($)</strong></td><td>$${fmt(c.divUsd, 2)}</td><td><strong>€${fmt(enr.divEur, 2)}</strong></td></tr>
+            <tr><td style="text-align:left;"><strong>Zelle ($)</strong></td><td>$${fmt(c.zelleUsd, 2)}</td><td><strong>€${fmt(enr.zelleEur, 2)}</strong></td></tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style="text-align:left;">TOTAL GENERAL DEL CIERRE (${esc(c.tipo || 'DIARIO')})</td>
+              <td>$${fmt(c.totalUsd, 2)} / ${fmt(enr.anchoredBs, 2)} Bs</td>
+              <td>€${fmt(eurVal, 2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      `;
     }
 
     const win = window.open('', '_blank');
@@ -2000,7 +2976,8 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
           <div class="meta">
             <div><strong>Fecha y Hora:</strong> ${nowStr}</div>
             <div><strong>Emitido por:</strong> ${esc(cashierName)}</div>
-            <div><strong>Tasa Oficial BCV:</strong> ${fmt(rate, 2)} Bs/$</div>
+            <div><strong>Tasa Dólar BCV:</strong> ${fmt(rate, 2)} Bs/$</div>
+            <div><strong>Tasa Euro BCV (€):</strong> ${fmt(getEuroRate(), 2)} Bs/€</div>
           </div>
         </div>
         <div class="doc-title">${reportTitle}</div>
@@ -2105,7 +3082,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       document.getElementById('tab-sistema')?.classList.add('active');
     });
 
-    // Tasa Oficial BCV Automática + Edición Manual opcional
+    // Tasa Oficial BCV ($ y € Euro) Automática + Edición Manual opcional
     document.getElementById('global-rate-input').addEventListener('input', e => {
       const r = parseFloat(e.target.value);
       if (r > 0) {
@@ -2113,6 +3090,29 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
         saveState();
         updateLiveTotal();
         renderCajaDebtSection();
+        renderSalesTable();
+        renderCierreView();
+        renderClientsView();
+        renderInventoryView();
+        renderReportsView();
+      }
+    });
+
+    document.getElementById('global-euro-rate-input')?.addEventListener('input', e => {
+      const rEur = parseFloat(e.target.value);
+      if (rEur > 0) {
+        state.euroRate = round2(rEur);
+        state.exchangeRate = round2(rEur);
+        const lblEur = document.getElementById('lbl-rate-eur');
+        if (lblEur) lblEur.textContent = `${fmt(state.euroRate, 2)} Bs/€`;
+        saveState();
+        updateLiveTotal();
+        renderDatalists();
+        renderQuickButtons();
+        renderCartItems();
+        renderCajaDebtSection();
+        renderSalesTable();
+        renderCierreView();
         renderClientsView();
         renderInventoryView();
         renderReportsView();
@@ -2123,8 +3123,80 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       fetchBcvRateAuto(true);
     });
 
+    document.getElementById('btn-rate-eur')?.addEventListener('click', () => {
+      fetchBcvRateAuto(true);
+    });
+
     document.getElementById('btn-sync-rate').addEventListener('click', () => {
       fetchBcvRateAuto(true);
+    });
+
+    document.getElementById('btn-sync-euro-cierre')?.addEventListener('click', () => {
+      fetchBcvRateAuto(true);
+    });
+
+    // Anclar la tasa principal de Caja a la Tasa Oficial del Euro BCV con 1 clic
+    const anchorCajaToEuro = () => {
+      const eurRate = getEuroRate();
+      if (eurRate > 0) {
+        state.exchangeRate = round2(eurRate);
+        const inp = document.getElementById('global-rate-input');
+        if (inp) inp.value = state.exchangeRate.toFixed(2);
+        saveState();
+        renderAll();
+        toast(`¡Caja anclada a la Tasa Oficial del Euro BCV (${fmt(eurRate, 2)} Bs/€)!`);
+      }
+    };
+    document.getElementById('btn-anchor-caja-to-euro')?.addEventListener('click', anchorCajaToEuro);
+    document.getElementById('btn-apply-euro-as-main')?.addEventListener('click', anchorCajaToEuro);
+
+    document.getElementById('btn-go-full-closures')?.addEventListener('click', () => {
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelector('.nav-btn[data-tab="cierre"]')?.classList.add('active');
+      document.getElementById('tab-cierre')?.classList.add('active');
+      renderCierreView();
+    });
+
+    // Pestañas de período de Cierre: DIARIO | SEMANAL | MENSUAL
+    document.querySelectorAll('.period-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeClosurePeriod = btn.getAttribute('data-period') || 'DIARIO';
+        document.querySelectorAll('.period-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderCierreView();
+      });
+    });
+
+    document.getElementById('cierre-euro-mode-select')?.addEventListener('change', e => {
+      state.euroAnchorMode = e.target.value || 'BCV_CONVERT';
+      saveState();
+      renderCajaEuroRenglon();
+      renderCierreView();
+    });
+
+    document.getElementById('cierre-month-picker')?.addEventListener('change', () => {
+      activeClosurePeriod = 'MENSUAL';
+      document.querySelectorAll('.period-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-period') === 'MENSUAL');
+      });
+      renderCierreView();
+    });
+
+    document.getElementById('filter-closures-type')?.addEventListener('change', () => {
+      renderCierreView();
+    });
+
+    document.getElementById('btn-export-closures-excel')?.addEventListener('click', () => {
+      exportClosuresToExcel();
+    });
+
+    document.getElementById('btn-print-all-euro-closures')?.addEventListener('click', () => {
+      openPrintableReport('EURO_CLOSURE_ALL');
+    });
+
+    document.getElementById('rep-btn-print-euro-closures')?.addEventListener('click', () => {
+      openPrintableReport('EURO_CLOSURE_ALL');
     });
 
     // Autocompletar precio al escribir producto
@@ -2423,33 +3495,19 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
 
     // Botones de Impresión de Reportes Profesionales PDF
     document.getElementById('print-daily-report-btn').addEventListener('click', () => openPrintableReport('SALES'));
-    document.getElementById('print-cierre-btn').addEventListener('click', () => openPrintableReport('SALES'));
+    document.getElementById('print-cierre-btn').addEventListener('click', () => openPrintableReport(`EURO_CLOSURE_${activeClosurePeriod}`));
     document.getElementById('print-clients-report-btn').addEventListener('click', () => openPrintableReport('CLIENTS'));
     document.getElementById('print-inv-report-btn').addEventListener('click', () => openPrintableReport('INVENTORY'));
     document.getElementById('rep-btn-print-sales').addEventListener('click', () => openPrintableReport('SALES'));
     document.getElementById('rep-btn-print-clients').addEventListener('click', () => openPrintableReport('CLIENTS'));
     document.getElementById('rep-btn-print-inv').addEventListener('click', () => openPrintableReport('INVENTORY'));
 
-    // Guardar Cierre de Caja
+    // Guardar Cierre de Caja (Diario, Semanal o Mensual Anclado al Euro)
     document.getElementById('cierre-form').addEventListener('submit', e => {
       e.preventDefault();
-      const t = getTotals();
-      state.closures.unshift({
-        id: `cl-${Date.now()}`,
-        date: new Date().toLocaleString('es-VE'),
-        cashier: currentUser ? currentUser.fullName : 'dzara',
-        totalUsd: t.usd,
-        puntoBs: t.puntoBs,
-        pmBs: t.pmBs,
-        efBs: t.efBs,
-        divUsd: t.divUsd,
-        zelleUsd: t.zelleUsd,
-        nota: document.getElementById('cierre-nota').value.trim()
-      });
+      const nota = document.getElementById('cierre-nota').value.trim();
+      saveClosureByPeriod(activeClosurePeriod, nota);
       document.getElementById('cierre-nota').value = '';
-      saveState();
-      renderCierreView();
-      toast('¡Cierre de caja guardado!');
     });
 
     // Clientes
