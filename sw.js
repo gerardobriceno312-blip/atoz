@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atoz-offline-v4';
+const CACHE_NAME = 'atoz-offline-v5';
 const ASSETS = [
   './',
   './index.html',
