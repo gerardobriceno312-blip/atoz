@@ -231,7 +231,7 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
   function registerOfflineServiceWorker() {
     try {
       if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.protocol === 'http:')) {
-        navigator.serviceWorker.register('sw.js?v=6').then(reg => {
+        navigator.serviceWorker.register('sw.js?v=7').then(reg => {
           try { reg.update(); } catch (e) {}
         }).catch(() => {});
       }
@@ -1822,12 +1822,69 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     };
   }
 
-  // Renderiza el Renglón de Cierres Diario, Semanal y Mensual Anclado al Euro dentro de 1. Caja Diaria
+  // Construye las 3 tarjetas grandes y sencillas para Cierre Diario, Semanal y Mensual
+  function buildSimpleClosureCardsHtml(periods, highlightActive = false) {
+    return periods
+      .map(p => {
+        const t = p.totals;
+        const divBs = round2(t.totalDivInEur * t.euroRate);
+        const pendBs = round2(t.pendEur * t.euroRate);
+        const isSelected = highlightActive && p.periodType === activeClosurePeriod;
+        return `
+        <div class="simple-closure-card ${isSelected ? 'active-card' : ''}">
+          <div>
+            <div class="scc-header">
+              <span class="scc-title">${esc(p.title)}</span>
+              <span class="euro-badge-pill ${p.badgeClass}">${fmt(t.totalUnits || 0, 0)} unds</span>
+            </div>
+            <div class="scc-period">${esc(p.periodLabel)}</div>
+          </div>
+
+          <div class="scc-main-amount">
+            <span>TOTAL VENDIDO EN BOLÍVARES (Tasa Euro)</span>
+            <strong>${fmt(t.anchoredBs, 2)} Bs</strong>
+            <small>Equivalente: €${fmt(t.eur, 2)}</small>
+          </div>
+
+          <div class="scc-lines">
+            <div class="scc-line">
+              <span>Punto + Pago Móvil + Efectivo:</span>
+              <strong>${fmt(t.totalBs, 2)} Bs</strong>
+            </div>
+            <div class="scc-line">
+              <span>Divisas + Zelle:</span>
+              <strong>€${fmt(t.totalDivInEur, 2)} (${fmt(divBs, 2)} Bs)</strong>
+            </div>
+            <div class="scc-line">
+              <span>Por Cobrar (Fiado):</span>
+              <strong class="text-yellow">${fmt(pendBs, 2)} Bs (€${fmt(t.pendEur, 2)})</strong>
+            </div>
+            <div class="scc-line" style="background:rgba(16,185,129,0.14); border:1px solid rgba(16,185,129,0.4);">
+              <span>Ganancia Libre:</span>
+              <strong class="text-green">${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)})</strong>
+            </div>
+          </div>
+
+          <div class="scc-actions">
+            <button type="button" class="btn-gold btn-quick-save-closure" data-period="${p.periodType}">
+              <i class="fa-solid fa-check-double"></i> GUARDAR CIERRE
+            </button>
+            <button type="button" class="btn-outline btn-quick-print-closure" data-period="${p.periodType}">
+              <i class="fa-solid fa-print"></i> IMPRIMIR PDF
+            </button>
+          </div>
+        </div>
+      `;
+      })
+      .join('');
+  }
+
+  // Renderiza el Renglón Sencillo de Cierres Diario, Semanal y Mensual dentro de 1. Caja Diaria
   function renderCajaEuroRenglon() {
-    const tbody = document.getElementById('caja-euro-renglon-tbody');
+    const container = document.getElementById('caja-euro-renglon-tbody');
     const rateLbl = document.getElementById('caja-euro-rate-lbl');
     if (rateLbl) rateLbl.textContent = `${fmt(getEuroRate(), 2)} Bs/€`;
-    if (!tbody) return;
+    if (!container) return;
 
     const periods = [
       getClosurePeriodSummary('DIARIO'),
@@ -1835,69 +1892,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       getClosurePeriodSummary('MENSUAL')
     ];
 
-    tbody.innerHTML = periods
-      .map(p => {
-        const t = p.totals;
-        const divBs = round2(t.totalDivInEur * t.euroRate);
-        const pendBs = round2(t.pendEur * t.euroRate);
-        const abonBs = round2(t.abonEur * t.euroRate);
-        return `
-        <tr>
-          <td style="text-align:left;">
-            <span class="euro-badge-pill ${p.badgeClass}">${esc(p.title)}</span>
-            <small style="display:block; color:var(--muted); margin-top:2px;">${esc(p.periodLabel)} • ${esc(p.opsCount)}</small>
-          </td>
-          <td><strong>${fmt(t.totalUnits || 0, 0)}</strong></td>
-          <td><strong class="text-gold" style="font-size:15.5px;">${fmt(t.anchoredBs, 2)} Bs</strong></td>
-          <td><strong style="color:#93C5FD; font-size:15px;">€${fmt(t.eur, 2)}</strong></td>
-          <td>${fmt(t.costBs || 0, 2)} Bs <small style="color:var(--muted);">(€${fmt(t.costEur || 0, 2)})</small></td>
-          <td><strong class="text-green">${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)})</strong></td>
-          <td>${fmt(t.totalBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.totalBsInEur, 2)})</small></td>
-          <td>${fmt(divBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.totalDivInEur, 2)})</small></td>
-          <td>
-            <span class="text-yellow" title="Fiado Pendiente">${fmt(pendBs, 2)} Bs (€${fmt(t.pendEur, 2)})</span> /
-            <span class="text-green" title="Abonos Cobrados">${fmt(abonBs, 2)} Bs (€${fmt(t.abonEur, 2)})</span>
-          </td>
-          <td>
-            <div style="display:flex; gap:5px; justify-content:center;">
-              <button type="button" class="mini-btn btn-quick-view-closure" data-period="${p.periodType}" title="Ver todos los detalles de productos, costos, ganancias y ventas de ${p.title}">
-                <i class="fa-solid fa-eye"></i> Detalles
-              </button>
-              <button type="button" class="btn-gold btn-quick-save-closure" data-period="${p.periodType}" style="padding:5px 10px; font-size:11.5px;" title="Guardar ${p.title} en Bolívares Anclado al Euro">
-                <i class="fa-solid fa-check"></i> Cerrar
-              </button>
-              <button type="button" class="mini-btn btn-quick-print-closure" data-period="${p.periodType}" title="Imprimir PDF Completo de ${p.title} con todos los detalles">
-                <i class="fa-solid fa-print"></i> PDF €
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-      })
-      .join('');
+    container.innerHTML = buildSimpleClosureCardsHtml(periods, false);
 
-    tbody.querySelectorAll('.btn-quick-view-closure').forEach(btn => {
-      btn.addEventListener('click', () => {
-        activeClosurePeriod = btn.getAttribute('data-period') || 'DIARIO';
-        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        document.querySelector('.nav-btn[data-tab="cierre"]')?.classList.add('active');
-        document.getElementById('tab-cierre')?.classList.add('active');
-        document.querySelectorAll('.period-tab-btn').forEach(b => {
-          b.classList.toggle('active', b.getAttribute('data-period') === activeClosurePeriod);
-        });
-        renderCierreView();
-      });
-    });
-
-    tbody.querySelectorAll('.btn-quick-save-closure').forEach(btn => {
+    container.querySelectorAll('.btn-quick-save-closure').forEach(btn => {
       btn.addEventListener('click', () => {
         const per = btn.getAttribute('data-period');
-        saveClosureByPeriod(per, `Cierre ${per} registrado desde Caja Diaria (Anclado a €${fmt(getEuroRate(), 2)} Bs/€)`);
+        saveClosureByPeriod(per, `Cierre ${per} guardado (Tasa Euro BCV: ${fmt(getEuroRate(), 2)} Bs/€)`);
       });
     });
 
-    tbody.querySelectorAll('.btn-quick-print-closure').forEach(btn => {
+    container.querySelectorAll('.btn-quick-print-closure').forEach(btn => {
       btn.addEventListener('click', () => {
         const per = btn.getAttribute('data-period');
         openPrintableReport(`EURO_CLOSURE_${per}`);
@@ -2064,71 +2068,16 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     ];
 
     if (masterTbody) {
-      masterTbody.innerHTML = allPeriods
-        .map(p => {
-          const t = p.totals;
-          const isSelected = p.periodType === activeClosurePeriod;
-          const divBs = round2(t.totalDivInEur * t.euroRate);
-          const pendBs = round2(t.pendEur * t.euroRate);
-          const abonBs = round2(t.abonEur * t.euroRate);
-          return `
-          <tr style="${isSelected ? 'background:rgba(59,130,246,0.16);' : ''}">
-            <td style="text-align:left;">
-              <span class="euro-badge-pill ${p.badgeClass}">${esc(p.title)}</span>
-            </td>
-            <td>
-              <strong>${esc(p.periodLabel)}</strong>
-              <small style="display:block; color:var(--muted);">${esc(p.opsCount)}</small>
-            </td>
-            <td><strong>${fmt(t.totalUnits || 0, 0)}</strong></td>
-            <td><strong class="text-gold" style="font-size:15.5px;">${fmt(t.anchoredBs, 2)} Bs</strong></td>
-            <td><strong style="color:#93C5FD; font-size:15px;">€${fmt(t.eur, 2)}</strong></td>
-            <td>${fmt(t.costBs || 0, 2)} Bs <small style="color:var(--muted);">(€${fmt(t.costEur || 0, 2)})</small></td>
-            <td><strong class="text-green">${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)})</strong></td>
-            <td>${fmt(t.puntoBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.puntoEur, 2)})</small></td>
-            <td>${fmt(t.pmBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.pmEur, 2)})</small></td>
-            <td>${fmt(t.efBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.efEur, 2)})</small></td>
-            <td>${fmt(divBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(t.totalDivInEur, 2)})</small></td>
-            <td>
-              <span class="text-yellow">${fmt(pendBs, 2)} Bs (€${fmt(t.pendEur, 2)})</span> /
-              <span class="text-green">${fmt(abonBs, 2)} Bs (€${fmt(t.abonEur, 2)})</span>
-            </td>
-            <td>
-              <div style="display:flex; gap:5px; justify-content:center;">
-                <button type="button" class="mini-btn btn-master-view-period" data-period="${p.periodType}" title="Ver todos los detalles abajo">
-                  <i class="fa-solid fa-eye"></i> Detalles
-                </button>
-                <button type="button" class="btn-gold btn-master-save-period" data-period="${p.periodType}" style="padding:5px 10px; font-size:12px;">
-                  <i class="fa-solid fa-check"></i> Guardar
-                </button>
-                <button type="button" class="mini-btn btn-master-print-period" data-period="${p.periodType}" title="Imprimir PDF Completo con todos los detalles">
-                  <i class="fa-solid fa-print"></i> PDF €
-                </button>
-              </div>
-            </td>
-          </tr>
-        `;
-        })
-        .join('');
+      masterTbody.innerHTML = buildSimpleClosureCardsHtml(allPeriods, true);
 
-      masterTbody.querySelectorAll('.btn-master-view-period').forEach(btn => {
-        btn.addEventListener('click', () => {
-          activeClosurePeriod = btn.getAttribute('data-period') || 'DIARIO';
-          document.querySelectorAll('.period-tab-btn').forEach(b => {
-            b.classList.toggle('active', b.getAttribute('data-period') === activeClosurePeriod);
-          });
-          renderCierreView();
-        });
-      });
-
-      masterTbody.querySelectorAll('.btn-master-save-period').forEach(btn => {
+      masterTbody.querySelectorAll('.btn-quick-save-closure').forEach(btn => {
         btn.addEventListener('click', () => {
           const per = btn.getAttribute('data-period') || 'DIARIO';
-          saveClosureByPeriod(per, document.getElementById('cierre-nota')?.value.trim() || `Cierre ${per} anclado al Euro BCV`);
+          saveClosureByPeriod(per, document.getElementById('cierre-nota')?.value.trim() || `Cierre ${per} guardado`);
         });
       });
 
-      masterTbody.querySelectorAll('.btn-master-print-period').forEach(btn => {
+      masterTbody.querySelectorAll('.btn-quick-print-closure').forEach(btn => {
         btn.addEventListener('click', () => {
           const per = btn.getAttribute('data-period') || 'DIARIO';
           openPrintableReport(`EURO_CLOSURE_${per}`);
@@ -2136,42 +2085,42 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       });
     }
 
-    // 2. Renderizar Detalle Completo del Período Activo (DIARIO | SEMANAL | MENSUAL)
+    // 2. Renderizar Detalle Claro del Período Activo (DIARIO | SEMANAL | MENSUAL)
     const activeSummary = allPeriods.find(x => x.periodType === activeClosurePeriod) || allPeriods[0];
     const t = activeSummary.totals;
 
     const titleMap = {
-      DIARIO: 'Cuadre y Cierre Diario Completo — En Bolívares Anclado al Euro (€ BCV)',
-      SEMANAL: 'Cuadre y Cierre Semanal Completo (7 Días) — En Bolívares Anclado al Euro (€ BCV)',
-      MENSUAL: `Cuadre y Cierre Mensual Completo (${activeSummary.periodLabel}) — En Bolívares Anclado al Euro (€ BCV)`
+      DIARIO: '1. Cierre Diario (Hoy)',
+      SEMANAL: '2. Cierre Semanal (7 Días)',
+      MENSUAL: `3. Cierre Mensual (${activeSummary.periodLabel})`
     };
     const titleEl = document.getElementById('cierre-active-period-title');
-    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-euro-sign text-gold"></i> ${esc(titleMap[activeClosurePeriod])}`;
+    if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-cash-register text-gold"></i> ${esc(titleMap[activeClosurePeriod])}`;
     const subEl = document.getElementById('cierre-active-period-subtitle');
     if (subEl) subEl.textContent = `${activeSummary.periodLabel} • ${activeSummary.opsCount} • Tasa Euro BCV: ${fmt(euroRate, 2)} Bs/€`;
 
     const saveBtn = document.getElementById('btn-save-active-closure');
     if (saveBtn) {
-      saveBtn.innerHTML = `<i class="fa-solid fa-check-double"></i> GUARDAR CIERRE ${activeClosurePeriod} (${fmt(t.anchoredBs, 2)} Bs / €${fmt(t.eur, 2)})`;
+      saveBtn.innerHTML = `<i class="fa-solid fa-check-double"></i> GUARDAR CIERRE ${activeClosurePeriod} (${fmt(t.anchoredBs, 2)} Bs)`;
     }
 
     const eurEl = document.getElementById('cierre-total-eur');
     if (eurEl) eurEl.textContent = `€${fmt(t.eur, 2)}`;
     const eurSub = document.getElementById('cierre-total-eur-sub');
-    if (eurSub) eurSub.textContent = `Ganancia Neta: €${fmt(t.profitEur || 0, 2)} (${fmt(t.profitBs || 0, 2)} Bs)`;
+    if (eurSub) eurSub.textContent = `Ganancia Libre: ${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)})`;
 
     document.getElementById('cierre-total-usd').textContent = `${fmt(t.anchoredBs, 2)} Bs`;
     const opsSub = document.getElementById('cierre-ops-count-sub');
-    if (opsSub) opsSub.textContent = `${activeSummary.opsCount} • Equiv: €${fmt(t.eur, 2)}`;
+    if (opsSub) opsSub.textContent = `${activeSummary.opsCount}`;
 
     document.getElementById('cierre-total-bs').textContent = `${fmt(t.totalBs, 2)} Bs`;
     const bsEurSub = document.getElementById('cierre-total-bs-in-eur');
-    if (bsEurSub) bsEurSub.textContent = `Anclado en Euros: €${fmt(t.totalBsInEur, 2)}`;
+    if (bsEurSub) bsEurSub.textContent = `Equivalente: €${fmt(t.totalBsInEur, 2)}`;
 
     const totalDivBs = round2(t.totalDivInEur * euroRate);
     document.getElementById('cierre-total-divisas').textContent = `${fmt(totalDivBs, 2)} Bs`;
     const divEurSub = document.getElementById('cierre-total-div-in-eur');
-    if (divEurSub) divEurSub.textContent = `Anclado en Euros: €${fmt(t.totalDivInEur, 2)}`;
+    if (divEurSub) divEurSub.textContent = `Equivalente: €${fmt(t.totalDivInEur, 2)}`;
 
     document.getElementById('cierre-line-punto').textContent = `${fmt(t.puntoBs, 2)} Bs (€${fmt(t.puntoEur, 2)})`;
     document.getElementById('cierre-line-pm').textContent = `${fmt(t.pmBs, 2)} Bs (€${fmt(t.pmEur, 2)})`;
@@ -2182,13 +2131,13 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
     document.getElementById('cierre-line-abonado').textContent = `${fmt(round2(t.abonEur * euroRate), 2)} Bs (€${fmt(t.abonEur, 2)})`;
 
     const unidsEl = document.getElementById('cierre-line-unidades');
-    if (unidsEl) unidsEl.textContent = `${fmt(t.totalUnits || 0, 0)} unidades vendidas (${(activeSummary.productsDetail || []).length} productos distintos)`;
+    if (unidsEl) unidsEl.textContent = `${fmt(t.totalUnits || 0, 0)} unidades`;
     const costoEl = document.getElementById('cierre-line-costo');
     if (costoEl) costoEl.textContent = `${fmt(t.costBs || 0, 2)} Bs (€${fmt(t.costEur || 0, 2)})`;
     const ganEl = document.getElementById('cierre-line-ganancia');
-    if (ganEl) ganEl.textContent = `${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)} • Margen ~${t.marginPct || 0}%)`;
+    if (ganEl) ganEl.textContent = `${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)})`;
 
-    // DETALLE 1: Tabla de Todos los Productos Vendidos, Costos y Ganancia Neta
+    // Tabla Sencilla de Productos Vendidos en este Cierre (5 columnas grandes y claras)
     const prodTbody = document.getElementById('cierre-products-detail-tbody');
     const prodTfoot = document.getElementById('cierre-products-detail-tfoot');
     if (prodTbody) {
@@ -2196,106 +2145,32 @@ CREATE POLICY "Acceso total atoz_usuarios" ON public.atoz_usuarios FOR ALL USING
       prodTbody.innerHTML = prods.length
         ? prods
             .map(
-              (p, i) => `
+              p => `
             <tr>
-              <td>${i + 1}</td>
               <td style="text-align:left;"><strong>${esc(p.product)}</strong></td>
-              <td>${esc(p.category)}</td>
               <td><strong>${fmt(p.qty, 0)}</strong></td>
-              <td>${fmt(p.unitPriceBs, 2)} Bs <small style="color:#93C5FD;">(€${fmt(p.unitPriceEur, 2)})</small></td>
-              <td><strong class="text-gold">${fmt(p.totalBs, 2)} Bs</strong> <small style="color:#93C5FD;">(€${fmt(p.totalEur, 2)})</small></td>
-              <td>${fmt(p.costBs, 2)} Bs <small style="color:var(--muted);">(€${fmt(p.costEur, 2)})</small></td>
+              <td><strong class="text-gold">${fmt(p.totalBs, 2)} Bs</strong></td>
+              <td><strong style="color:#93C5FD;">€${fmt(p.totalEur, 2)}</strong></td>
               <td><strong class="text-green">${fmt(p.profitBs, 2)} Bs (€${fmt(p.profitEur, 2)})</strong></td>
             </tr>
           `
             )
             .join('')
-        : `<tr><td colspan="8" class="hint">No hay productos vendidos registrados en este período.</td></tr>`;
+        : `<tr><td colspan="5" class="hint">No hay productos vendidos registrados en este período.</td></tr>`;
 
       if (prodTfoot) {
         prodTfoot.innerHTML = prods.length
           ? `
           <tr>
-            <td colspan="3" style="text-align:left;">TOTALES DE PRODUCTOS VENDIDOS (${prods.length} referencias)</td>
+            <td style="text-align:left;">TOTAL GENERAL</td>
             <td>${fmt(t.totalUnits || 0, 0)} unds</td>
-            <td>—</td>
-            <td>${fmt(t.anchoredBs, 2)} Bs (€${fmt(t.eur, 2)})</td>
-            <td>${fmt(t.costBs || 0, 2)} Bs (€${fmt(t.costEur || 0, 2)})</td>
+            <td>${fmt(t.anchoredBs, 2)} Bs</td>
+            <td>€${fmt(t.eur, 2)}</td>
             <td>${fmt(t.profitBs || 0, 2)} Bs (€${fmt(t.profitEur || 0, 2)})</td>
           </tr>
         `
           : '';
       }
-    }
-
-    // DETALLE 2: Tabla Línea por Línea de Todas las Ventas y Operaciones del Período
-    const salesTbody = document.getElementById('cierre-sales-detail-tbody');
-    if (salesTbody) {
-      const sList = activeSummary.salesDetail || [];
-      salesTbody.innerHTML = sList.length
-        ? sList
-            .map(
-              (s, i) => `
-            <tr class="${s.isPending ? 'row-yellow' : ''}">
-              <td>${i + 1}</td>
-              <td style="text-align:left;">${esc(s.date)}</td>
-              <td style="text-align:left;"><strong>${esc(s.product)}</strong></td>
-              <td>${fmt(s.qty, 0)}</td>
-              <td><strong>${fmt(s.totalBs, 2)} Bs</strong></td>
-              <td><strong>€${fmt(s.totalEur, 2)}</strong></td>
-              <td>${esc(s.methodLabel)}</td>
-              <td style="text-align:left;"><strong>${esc(s.client)}</strong></td>
-              <td>${s.isPending ? 'PENDIENTE / FIADO' : s.isAbono ? 'ABONO COBRADO' : 'PAGADO'}</td>
-            </tr>
-          `
-            )
-            .join('')
-        : `<tr><td colspan="9" class="hint">No hay operaciones registradas en este período.</td></tr>`;
-    }
-
-    // DETALLE 3: Tabla de Clientes con Cuentas por Cobrar (Fiados) y Productos que Deben
-    const cliTbody = document.getElementById('cierre-clients-detail-tbody');
-    if (cliTbody) {
-      const cList = activeSummary.clientsDetail || [];
-      cliTbody.innerHTML = cList.length
-        ? cList
-            .map(
-              c => `
-            <tr>
-              <td style="text-align:left;"><strong>${esc(c.name)}</strong></td>
-              <td><strong class="text-gold">${fmt(c.deudaBs, 2)} Bs</strong></td>
-              <td><strong class="text-yellow">€${fmt(c.deudaEur, 2)}</strong></td>
-              <td style="text-align:left; white-space:normal;">${esc(c.itemsText)}</td>
-            </tr>
-          `
-            )
-            .join('')
-        : `<tr><td colspan="4" class="hint">No hay clientes con deuda pendiente actualmente.</td></tr>`;
-    }
-
-    // DETALLE 4: Tabla de Desglose de Jornadas / Días Incluidos
-    const daysBox = document.getElementById('cierre-period-days-box');
-    const daysTbody = document.getElementById('cierre-period-days-tbody');
-    if (daysBox && daysTbody) {
-      daysBox.classList.remove('hidden');
-      daysTbody.innerHTML = activeSummary.daysBreakdown.length
-        ? activeSummary.daysBreakdown
-            .map(
-              d => `
-            <tr>
-              <td style="text-align:left;"><strong>${esc(d.label)}</strong></td>
-              <td><span class="euro-badge-pill">${esc(d.tipo)}</span></td>
-              <td><strong>${fmt(d.units || 0, 0)}</strong></td>
-              <td><strong class="text-gold">${fmt(d.anchoredBs || 0, 2)} Bs</strong></td>
-              <td><strong style="color:#93C5FD;">€${fmt(d.eur, 2)}</strong></td>
-              <td>${fmt(d.costBs || 0, 2)} Bs (€${fmt(d.costEur || 0, 2)})</td>
-              <td><strong class="text-green">${fmt(d.profitBs || 0, 2)} Bs (€${fmt(d.profitEur || 0, 2)})</strong></td>
-              <td>${fmt(d.euroRate, 2)} Bs/€</td>
-            </tr>
-          `
-            )
-            .join('')
-        : `<tr><td colspan="8" class="hint">Aún no hay jornadas guardadas en este período.</td></tr>`;
     }
 
     // 3. Historial de Cierres Guardados (Filtrable por DIARIO, SEMANAL, MENSUAL)

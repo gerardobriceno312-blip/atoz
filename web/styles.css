@@ -1520,6 +1520,110 @@ select:focus {
   color: var(--gold);
 }
 
+/* TARJETAS GRANDES Y SENCILLAS DE CIERRE DIARIO, SEMANAL Y MENSUAL */
+.simple-closures-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.simple-closure-card {
+  background: rgba(0, 0, 0, 0.42);
+  border: 2px solid var(--gold-border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.simple-closure-card.active-card {
+  border-color: var(--gold);
+  background: linear-gradient(145deg, rgba(91, 20, 30, 0.7), rgba(20, 3, 6, 0.85));
+  box-shadow: 0 0 18px rgba(255, 242, 170, 0.22);
+}
+
+.scc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.scc-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--gold);
+}
+
+.scc-period {
+  font-size: 13.5px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.scc-main-amount {
+  background: rgba(255, 242, 170, 0.1);
+  border: 1.5px solid var(--gold);
+  border-radius: 12px;
+  padding: 12px 14px;
+  text-align: center;
+}
+
+.scc-main-amount span {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.scc-main-amount strong {
+  display: block;
+  font-family: 'Outfit', sans-serif;
+  font-size: 26px;
+  color: var(--gold);
+  line-height: 1.2;
+}
+
+.scc-main-amount small {
+  display: block;
+  font-size: 16px;
+  font-weight: 900;
+  color: #93C5FD;
+  margin-top: 2px;
+}
+
+.scc-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14.5px;
+}
+
+.scc-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.scc-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.scc-actions button {
+  padding: 12px 10px;
+  font-size: 14.5px;
+  font-weight: 900;
+  justify-content: center;
+}
+
 @media (max-width: 1024px) {
 
   .sale-inputs-grid,
