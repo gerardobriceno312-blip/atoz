@@ -1,18 +1,19 @@
-const CACHE_NAME = 'atoz-offline-v5';
+const CACHE_NAME = 'atoz-offline-v6';
 const ASSETS = [
   './',
   './index.html',
-  './styles.css',
-  './app.js',
-  './data.js',
+  './styles.css?v=6',
+  './app.js?v=6',
+  './data.js?v=6',
   './logo.png',
   './favicon.png',
   './manifest.json'
 ];
 
 self.addEventListener('install', event => {
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).catch(() => {})
   );
 });
 
@@ -31,7 +32,7 @@ self.addEventListener('fetch', event => {
     return;
   }
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-store' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {});

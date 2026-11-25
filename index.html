@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -396,14 +396,15 @@
               <thead>
                 <tr>
                   <th style="text-align:left;">RENGLÓN / PERÍODO DE CIERRE</th>
-                  <th>TOTAL EN BOLÍVARES (Bs a Tasa Euro)</th>
-                  <th>TOTAL ANCLADO EN EUROS (€ BCV)</th>
-                  <th>PUNTO DE VENTA (Bs / €)</th>
-                  <th>PAGO MÓVIL (Bs / €)</th>
-                  <th>EFECTIVO (Bs / €)</th>
+                  <th>UNDS</th>
+                  <th>TOTAL VENTA (Bs a Tasa €)</th>
+                  <th>TOTAL (€ BCV)</th>
+                  <th>COSTO MERCANCÍA (Bs / €)</th>
+                  <th>GANANCIA NETA (Bs / €)</th>
+                  <th>PUNTO + PM + EFECTIVO (Bs / €)</th>
                   <th>DIVISAS + ZELLE (Bs / €)</th>
                   <th>FIADOS / ABONOS (Bs / €)</th>
-                  <th>ACCIÓN RÁPIDA DE CIERRE</th>
+                  <th>DETALLE Y CIERRE</th>
                 </tr>
               </thead>
               <tbody id="caja-euro-renglon-tbody"></tbody>
@@ -525,14 +526,17 @@
                   <tr>
                     <th style="text-align:left;">RENGLÓN DE CIERRE</th>
                     <th>PERÍODO / FECHA</th>
-                    <th>TOTAL EN BOLÍVARES (Bs Tasa €)</th>
-                    <th>TOTAL ANCLADO EN EUROS (€ BCV)</th>
-                    <th>PUNTO DE VENTA (Bs / €)</th>
+                    <th>UNDS</th>
+                    <th>VENTA TOTAL (Bs Tasa €)</th>
+                    <th>TOTAL (€ BCV)</th>
+                    <th>COSTO (Bs / €)</th>
+                    <th>GANANCIA NETA (Bs / €)</th>
+                    <th>PUNTO (Bs / €)</th>
                     <th>PAGO MÓVIL (Bs / €)</th>
                     <th>EFECTIVO (Bs / €)</th>
                     <th>DIVISAS + ZELLE (Bs / €)</th>
                     <th>FIADO / ABONOS (Bs / €)</th>
-                    <th>ACCIONES DEL RENGLÓN</th>
+                    <th>ACCIONES</th>
                   </tr>
                 </thead>
                 <tbody id="cierre-master-renglones-tbody"></tbody>
@@ -617,15 +621,97 @@
                 <strong id="cierre-line-pendiente">$0,00 (€0,00)</strong>
               </div>
               <div class="cierre-line green">
-                <span><i class="fa-solid fa-hand-holding-dollar"></i> Abonos de Clientes Recibidos ($ / € BCV):</span>
-                <strong id="cierre-line-abonado">$0,00 (€0,00)</strong>
+                <span><i class="fa-solid fa-hand-holding-dollar"></i> Abonos de Clientes Recibidos (Bs / € BCV):</span>
+                <strong id="cierre-line-abonado">0,00 Bs (€0,00)</strong>
+              </div>
+              <div class="cierre-line">
+                <span><i class="fa-solid fa-boxes-packing text-gold"></i> Total Unidades Vendidas en el Período:</span>
+                <strong id="cierre-line-unidades">0 unidades</strong>
+              </div>
+              <div class="cierre-line">
+                <span><i class="fa-solid fa-tags text-gold"></i> Costo Total de Mercancía Vendida (Bs / € BCV):</span>
+                <strong id="cierre-line-costo">0,00 Bs (€0,00)</strong>
+              </div>
+              <div class="cierre-line green" style="background:rgba(16,185,129,0.14); border:1px solid rgba(16,185,129,0.4);">
+                <span><i class="fa-solid fa-sack-dollar"></i> Ganancia Neta / Utilidad Real del Período (Bs / € BCV):</span>
+                <strong id="cierre-line-ganancia">0,00 Bs (€0,00)</strong>
               </div>
             </div>
 
-            <!-- Desglose de días/cierres incluidos en el Cierre Semanal o Mensual -->
-            <div id="cierre-period-days-box" class="hidden" style="margin-top:16px;">
-              <strong class="text-gold" style="display:block; margin-bottom:8px; font-size:13.5px;">
-                <i class="fa-solid fa-list-check"></i> Desglose de Jornadas / Cierres Incluidos en este Período:
+            <!-- DETALLE 1: PRODUCTOS VENDIDOS, COSTOS Y GANANCIA NETA EN EL PERÍODO (DIARIO / SEMANAL / MENSUAL) -->
+            <div style="margin-top:18px;">
+              <strong class="text-gold" style="display:block; margin-bottom:8px; font-size:14px;">
+                <i class="fa-solid fa-bottle-droplet"></i> 1. Detalle de Todos los Productos Vendidos, Costos y Ganancia Neta (En Bolívares y Euros € BCV):
+              </strong>
+              <div class="table-wrap" style="max-height:260px; overflow-y:auto;">
+                <table class="sheet-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th style="text-align:left;">PRODUCTO VENDIDO</th>
+                      <th>CATEGORÍA</th>
+                      <th>CANT. VENDIDA</th>
+                      <th>PRECIO UNIT (Bs / €)</th>
+                      <th>TOTAL VENTA (Bs / €)</th>
+                      <th>COSTO TOTAL (Bs / €)</th>
+                      <th>GANANCIA NETA (Bs / €)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cierre-products-detail-tbody"></tbody>
+                  <tfoot id="cierre-products-detail-tfoot"></tfoot>
+                </table>
+              </div>
+            </div>
+
+            <!-- DETALLE 2: TODAS LAS VENTAS Y OPERACIONES DETALLADAS LÍNEA POR LÍNEA DEL PERÍODO -->
+            <div style="margin-top:18px;">
+              <strong class="text-gold" style="display:block; margin-bottom:8px; font-size:14px;">
+                <i class="fa-solid fa-receipt"></i> 2. Detalle Línea por Línea de Todas las Ventas y Operaciones del Período:
+              </strong>
+              <div class="table-wrap" style="max-height:260px; overflow-y:auto;">
+                <table class="sheet-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th style="text-align:left;">FECHA / HORA</th>
+                      <th style="text-align:left;">PRODUCTO / CONCEPTO</th>
+                      <th>CANT</th>
+                      <th>TOTAL EN BS (Tasa €)</th>
+                      <th>TOTAL (€)</th>
+                      <th>MÉTODO DE PAGO</th>
+                      <th style="text-align:left;">CLIENTE</th>
+                      <th>ESTADO</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cierre-sales-detail-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- DETALLE 3: CLIENTES CON FIADOS / DEUDAS DETALLADAS Y ABONOS -->
+            <div style="margin-top:18px;">
+              <strong class="text-gold" style="display:block; margin-bottom:8px; font-size:14px;">
+                <i class="fa-solid fa-user-clock"></i> 3. Detalle de Clientes con Cuentas por Cobrar (Fiados) y Productos que Deben (Bs / € BCV):
+              </strong>
+              <div class="table-wrap" style="max-height:240px; overflow-y:auto;">
+                <table class="sheet-table">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">CLIENTE</th>
+                      <th>DEUDA EN BOLÍVARES (Bs Tasa €)</th>
+                      <th>DEUDA (€ BCV)</th>
+                      <th style="text-align:left;">DETALLE COMPLETO DE PRODUCTOS QUE DEBE</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cierre-clients-detail-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- DETALLE 4: DESGLOSE DE JORNADAS / DÍAS INCLUIDOS EN EL PERÍODO -->
+            <div id="cierre-period-days-box" style="margin-top:18px;">
+              <strong class="text-gold" style="display:block; margin-bottom:8px; font-size:14px;">
+                <i class="fa-solid fa-list-check"></i> 4. Desglose de Jornadas / Días Incluidos en este Cierre (Diario, Semanal o Mensual):
               </strong>
               <div class="table-wrap" style="max-height:220px; overflow-y:auto;">
                 <table class="sheet-table">
@@ -633,10 +719,11 @@
                     <tr>
                       <th style="text-align:left;">FECHA / JORNADA</th>
                       <th>TIPO</th>
+                      <th>UNDS</th>
+                      <th>VENTA TOTAL (Bs)</th>
                       <th>TOTAL (€ BCV)</th>
-                      <th>TOTAL ($)</th>
-                      <th>TOTAL COBRADO (Bs)</th>
-                      <th>DIVISAS + ZELLE ($)</th>
+                      <th>COSTO (Bs / €)</th>
+                      <th>GANANCIA (Bs / €)</th>
                       <th>TASA € BCV</th>
                     </tr>
                   </thead>
@@ -1169,7 +1256,7 @@
   <!-- TOAST -->
   <div id="toast-box" class="toast-box"></div>
 
-  <script src="data.js"></script>
-  <script src="app.js"></script>
+  <script src="data.js?v=6"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
